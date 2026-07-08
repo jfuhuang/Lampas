@@ -39,9 +39,9 @@ function approxDistM(a, b) {
   return Math.hypot(dLat, dLng);
 }
 
-/** Fresh scenario: 3 teams, 6 players, boundary in Central Park. */
+/** Fresh scenario: 3 teams, 6 players, boundary at Snow Mountain Ranch, CO. */
 export function makeScenario() {
-  const center = { lat: 40.7812, lng: -73.9665 };
+  const center = { lat: 39.9865, lng: -105.9333 };
   const boundary = { center, radiusM: 180 };
 
   const mk = (name, isHost = false) => ({
@@ -92,8 +92,10 @@ function setPhase(s, phase) {
   s.phase = phase;
   s.activeEvent = null;
   if (phase === 'hide') s.phaseEndsAt = Date.now() + s.settings.hideSeconds * 1000;
-  else if (phase === 'seek') s.phaseEndsAt = Date.now() + s.settings.seekSeconds * 1000;
-  else s.phaseEndsAt = null;
+  else if (phase === 'seek') {
+    s.phaseEndsAt = Date.now() + s.settings.seekSeconds * 1000;
+    s.initialHiderTeams = s.teams.filter((t) => t.role === 'hider' && t.players.length).length;
+  } else s.phaseEndsAt = null;
   if (phase === 'lobby') {
     s.winnerTeamId = null;
     for (const t of s.teams) {
@@ -110,8 +112,10 @@ function convertTeam(s, teamId) {
   if (!team || team.role !== 'hider' || s.phase !== 'seek') return;
   team.role = 'seeker';
   team.caughtAt = Date.now();
-  const hiders = s.teams.filter((t) => t.role === 'hider');
-  if (hiders.length <= 1) {
+  // Same win rule as the server: end at 1 hider team left (them = winner),
+  // unless the game started with a single hider team — then play to 0.
+  const hiders = s.teams.filter((t) => t.role === 'hider' && t.players.length);
+  if (hiders.length <= (s.initialHiderTeams > 1 ? 1 : 0)) {
     s.winnerTeamId = hiders[0]?.id ?? null;
     s.phase = 'over';
     s.phaseEndsAt = null;

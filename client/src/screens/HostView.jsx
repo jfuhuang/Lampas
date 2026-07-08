@@ -15,6 +15,9 @@ export default function HostView() {
   const { you, phase } = useGame();
   const [tab, setTab] = useState('referee'); // 'referee' | 'play'
 
+  // Hosts join teamless (referee-only) — no team, no Play tab, no tab bar.
+  if (!you.teamId) return <RefereeView />;
+
   let playScreen;
   if (phase === 'lobby') playScreen = <Lobby />;
   else if (you.role === 'seeker') playScreen = <SeekerView />;

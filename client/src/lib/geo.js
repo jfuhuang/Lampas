@@ -9,6 +9,14 @@
  * - navigator.vibrate is Android-only; treat as best-effort backup.
  */
 
+/**
+ * Default map center: Snow Mountain Ranch (YMCA of the Rockies), Granby, CO.
+ * Only a starting view — the referee re-centers by tapping the map or
+ * "Center on me", and the map auto-fits once a boundary exists.
+ */
+export const DEFAULT_CENTER = { lat: 39.9865, lng: -105.9333 };
+export const DEFAULT_ZOOM = 15;
+
 // ── Geolocation ────────────────────────────────────────────────────────
 
 /**

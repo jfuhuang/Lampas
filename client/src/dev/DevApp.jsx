@@ -79,6 +79,7 @@ export default function DevApp() {
     joined: true,
     connected: true,
     torchActive,
+    myPos: state.positions.find((p) => p.playerId === state.youId) ?? null,
     toast,
     dismissToast: () => setToast(null),
     showToast,

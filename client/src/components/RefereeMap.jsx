@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
+import { DEFAULT_CENTER, DEFAULT_ZOOM } from '../lib/geo.js';
 
 /**
  * Live Leaflet map for the host/referee ONLY — the one place player
@@ -22,7 +23,10 @@ export default function RefereeMap({ positions, boundary, phase, onSetCenter }) 
 
   // Init once
   useEffect(() => {
-    const map = L.map(mapEl.current, { zoomControl: true }).setView([51.5, -0.12], 16);
+    const map = L.map(mapEl.current, { zoomControl: true }).setView(
+      [DEFAULT_CENTER.lat, DEFAULT_CENTER.lng],
+      DEFAULT_ZOOM,
+    );
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors',
@@ -69,7 +73,8 @@ export default function RefereeMap({ positions, boundary, phase, onSetCenter }) 
     const now = Date.now();
     for (const p of positions ?? []) {
       const stale = !p.connected || now - (p.at ?? 0) > 20_000;
-      const color = p.role === 'seeker' ? '#ef4444' : '#34d399';
+      const color =
+        p.role === 'seeker' ? '#ef4444' : p.role === 'host' ? '#fbbf24' : '#34d399';
       L.circleMarker([p.lat, p.lng], {
         radius: 9,
         color: stale ? '#555' : '#111',

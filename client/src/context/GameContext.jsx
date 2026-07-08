@@ -30,21 +30,33 @@ export function GameProvider({ children }) {
   const [joined, setJoined] = useState(!!getStoredPlayerId());
   const [connected, setConnected] = useState(socket.connected);
   const [torchActive, setTorchActive] = useState(false);
+  const [myPos, setMyPos] = useState(null); // own GPS only — never others'
   const [toast, setToast] = useState(null); // { text, tone, at }
   const soundPlayedFor = useRef(0); // dedupe sound event across resyncs
-  const autoRejoined = useRef(false); // one silent re-join per server life
+  const autoRejoined = useRef(false); // silent re-join in flight (guards stale unknownPlayer replies)
 
   const showToast = useCallback((text, tone = 'info') => {
     setToast({ text, tone, at: Date.now() });
   }, []);
 
-  const join = useCallback((name, teamName) => {
-    socket.emit('join', { playerId: getStoredPlayerId(), name, teamName }, (res) => {
-      storePlayerId(res.playerId);
-      storeCreds({ name, teamName });
-      setJoined(true);
-    });
-  }, []);
+  const join = useCallback(
+    (name, teamName, hostPass) => {
+      socket.emit(
+        'join',
+        { playerId: getStoredPlayerId(), name, teamName, hostPass },
+        (res) => {
+          if (res.error) {
+            showToast(res.error, 'alert');
+            return;
+          }
+          storePlayerId(res.playerId);
+          storeCreds({ name, teamName, hostPass });
+          setJoined(true);
+        },
+      );
+    },
+    [showToast],
+  );
 
   // ── Socket subscriptions ─────────────────────────────────────────────
   useEffect(() => {
@@ -52,20 +64,36 @@ export function GameProvider({ children }) {
       if (state.unknownPlayer) {
         // Server restarted and lost our playerId. If we have stored creds,
         // silently re-join with the same name + team; otherwise show Join.
+        // Stale resyncs (sent with the old playerId before the re-join ack
+        // lands) also answer unknownPlayer — ignore them while one re-join
+        // is in flight, never bounce a creds-holding user back to Join.
         const creds = getStoredCreds();
-        if (creds && !autoRejoined.current) {
-          autoRejoined.current = true;
-          socket.emit('join', { name: creds.name, teamName: creds.teamName }, (res) => {
-            storePlayerId(res.playerId);
-            setJoined(true);
-          });
+        if (!creds) {
+          setJoined(false);
+          setGame(null);
           return;
         }
-        setJoined(false);
-        setGame(null);
+        if (!autoRejoined.current) {
+          autoRejoined.current = true;
+          socket.emit(
+            'join',
+            { name: creds.name, teamName: creds.teamName, hostPass: creds.hostPass },
+            (res) => {
+              autoRejoined.current = false;
+              if (res.error) {
+                // e.g. host password changed server-side — fall back to Join.
+                setJoined(false);
+                setGame(null);
+                return;
+              }
+              storePlayerId(res.playerId);
+              setJoined(true);
+              socket.emit('resync', { playerId: res.playerId });
+            },
+          );
+        }
         return;
       }
-      autoRejoined.current = false; // healthy state → re-arm the auto-rejoin
       setGame(state);
       // Derive overlays from authoritative state so a resync after a drop
       // still shows/hides them correctly (never rely on event packets).
@@ -98,7 +126,10 @@ export function GameProvider({ children }) {
     };
     const onShrink = () => showToast('THE ZONE IS SHRINKING — check the boundary!', 'warn');
     const onConnect = () => setConnected(true);
-    const onDisconnect = () => setConnected(false);
+    const onDisconnect = () => {
+      setConnected(false);
+      autoRejoined.current = false; // a lost re-join ack must not wedge us
+    };
 
     socket.on('game:state', onState);
     socket.on('event:torch', onTorch);
@@ -107,6 +138,14 @@ export function GameProvider({ children }) {
     socket.on('boundary:warning', onWarning);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
+    // The module-level connect handler may have resynced BEFORE these
+    // listeners existed (its game:state reply was lost). Now that we're
+    // subscribed, pull state again if the socket is already up.
+    if (socket.connected) {
+      const pid = getStoredPlayerId();
+      if (pid) socket.emit('resync', { playerId: pid });
+      setConnected(true);
+    }
     return () => {
       socket.off('game:state', onState);
       socket.off('event:torch', onTorch);
@@ -128,7 +167,10 @@ export function GameProvider({ children }) {
   useEffect(() => {
     if (!joined || (phase !== 'hide' && phase !== 'seek')) return undefined;
     const stop = startPositionStream(
-      (pos) => socket.emit('pos:update', pos),
+      (pos) => {
+        setMyPos(pos); // local echo for the player boundary map
+        socket.emit('pos:update', pos);
+      },
       () => showToast('GPS unavailable — check location permission', 'warn'),
     );
     return stop;
@@ -141,6 +183,7 @@ export function GameProvider({ children }) {
     joined,
     connected,
     torchActive,
+    myPos,
     toast,
     dismissToast: () => setToast(null),
     showToast,

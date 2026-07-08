@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { socket } from '../lib/socket.js';
 import Countdown from '../components/Countdown.jsx';
+import PlayerMap from '../components/PlayerMap.jsx';
 import { useGame } from '../context/GameContext.jsx';
 import { PhaseBadge, GameOver } from './HiderView.jsx';
 
@@ -11,7 +12,7 @@ import { PhaseBadge, GameOver } from './HiderView.jsx';
  * Seekers NEVER see hider positions.
  */
 export default function SeekerView() {
-  const { game } = useGame();
+  const { game, myPos } = useGame();
   const [confirmTarget, setConfirmTarget] = useState(null); // player object
   const { phase, phaseEndsAt, serverNow } = game;
 
@@ -30,6 +31,8 @@ export default function SeekerView() {
           className="mt-3"
         />
       </header>
+
+      <PlayerMap boundary={game.boundary} myPos={myPos} />
 
       {phase === 'hide' ? (
         <div className="rounded-xl border border-neutral-800 bg-panel p-6 text-center">

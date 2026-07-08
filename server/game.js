@@ -47,6 +47,7 @@ export class Game {
     this.activeEvent = null; // { type, endsAt }
     this.winnerTeamId = null;
     this.startedAt = null;
+    this.initialHiderTeams = 0;
   }
 
   // ── Lobby ────────────────────────────────────────────────────────────
@@ -71,9 +72,8 @@ export class Game {
     player.connected = true;
     player.lastSeenAt = Date.now();
     if (name) player.name = String(name).slice(0, 24);
-    // First player in becomes host unless someone already holds it.
-    const hasHost = [...this.players.values()].some((p) => p.isHost && p.id !== player.id);
-    if (isHost || !hasHost) player.isHost = true;
+    // Host is decided by credentials (checked in index.js), never by join order.
+    player.isHost = !!isHost;
     if (teamName) this.joinTeam(player.id, teamName);
     return player;
   }
@@ -149,6 +149,9 @@ export class Game {
       this.phaseEndsAt = Date.now() + this.settings.hideSeconds * 1000;
     } else if (phase === 'seek') {
       this.phaseEndsAt = Date.now() + this.settings.seekSeconds * 1000;
+      // Snapshot for the win rule: >1 hider team → end at 1 left; exactly
+      // one hider team from the start → play until 0.
+      this.initialHiderTeams = this.hiderTeams().length;
     } else if (phase === 'over') {
       this.phaseEndsAt = null;
     }
@@ -207,14 +210,25 @@ export class Game {
     return team;
   }
 
+  /** Hider teams that actually have players — empty shells don't count. */
   hiderTeams() {
-    return [...this.teams.values()].filter((t) => t.role === 'hider');
+    return [...this.teams.values()].filter(
+      (t) =>
+        t.role === 'hider' &&
+        [...this.players.values()].some((p) => p.teamId === t.id),
+    );
   }
 
+  /**
+   * Win rule: game ends the moment only ONE hider team remains — they win.
+   * Exception: a game that STARTED with a single hider team would end at
+   * kickoff under that rule, so it plays until 0 remain (seekers win).
+   */
   checkWin() {
     if (this.phase !== 'seek') return;
     const hiders = this.hiderTeams();
-    if (hiders.length <= 1) {
+    const endAt = this.initialHiderTeams > 1 ? 1 : 0;
+    if (hiders.length <= endAt) {
       this.winnerTeamId = hiders[0]?.id ?? null; // null = seekers caught everyone
       this.phase = 'over';
       this.phaseEndsAt = null;
@@ -350,17 +364,20 @@ export class Game {
   /**
    * Referee/host view: everything, including live positions.
    * Positions NEVER appear in the player view (privacy constraint).
+   * Pass the host's playerId so the payload keeps `you` — the client
+   * routes on `game.you`, so a you-less state would bounce the host
+   * back to the join screen.
    */
-  refereeState() {
+  refereeState(playerId = null) {
     return {
-      ...this.baseState(),
+      ...(playerId ? this.playerState(playerId) : this.baseState()),
       positions: [...this.players.values()]
         .filter((p) => p.pos)
         .map((p) => ({
           playerId: p.id,
           name: p.name,
           teamId: p.teamId,
-          role: this.teams.get(p.teamId)?.role ?? 'hider',
+          role: this.teams.get(p.teamId)?.role ?? 'host', // teamless = the referee
           lat: p.pos.lat,
           lng: p.pos.lng,
           at: p.pos.at,
@@ -386,7 +403,9 @@ export class Game {
             name: player.name,
             teamId: player.teamId,
             teamName: team?.name ?? null,
-            role: team?.role ?? 'hider',
+            // Teamless host must not count as a hider (e.g. sound event
+            // makes only hider phones ring).
+            role: team?.role ?? (player.isHost ? 'host' : 'hider'),
             isHost: player.isHost,
             ready: player.ready,
           }

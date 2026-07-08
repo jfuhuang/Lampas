@@ -15,10 +15,13 @@ One URL, nothing to coordinate, no database — state lives in memory for one ni
 
 1. **Lobby** — everyone opens the URL on their phone, enters a name + team name
    (same team name = same team; both are remembered on the phone for reconnects).
-   The first person in becomes the **host/referee** — they get a two-tab view
-   (👑 Referee panel / 🔦 Play) so they can referee *and* play on a team.
-   The host sets the boundary circle, timers, and picks which team seeks first.
-   Everyone taps **Ready** (this also unlocks sound and keeps the screen awake).
+   The **host/referee** logs in at **`/host`** instead — password only
+   (default `pass`, override with the `HOST_PASSWORD` env var on the server);
+   typing `host` as the name on the landing page works too. Hosts have no
+   team — they get the referee panel (map, timers, curveballs, manual tags).
+   The host sets the boundary circle, timers, and picks which team seeks
+   first. Everyone taps **Ready** (this also unlocks sound and keeps the
+   screen awake).
 2. **Hide phase** — hiders get a countdown to get inside the boundary and hide.
    Seekers are frozen at base.
 3. **Seek phase** — seekers roam with real flashlights. When a beam hits a hider,
@@ -127,7 +130,7 @@ as a static site pointed at a remote server:
 | GPS is **~5–15 m accurate** outdoors | Boundary is a circle only, with a 10 m noise margin and a 30 s grace period before penalties. No mechanic needs sub-10 m precision |
 | Audio needs a **user gesture** to unlock | The lobby "Ready" tap unlocks the AudioContext; `navigator.vibrate()` is the Android backup for silent iPhones |
 | Screens sleep, sockets drop | Screen Wake Lock API (re-acquired on tab return); clients **re-sync full state on every reconnect** instead of relying on event delivery |
-| Live positions would ruin the game | Positions go to the server and the **referee map only**. Player screens never render anyone's location |
+| Live positions would ruin the game | Positions go to the server and the **referee map only**. Hiders and seekers get a boundary map showing the circle and **their own dot only** (local GPS echo — other players' locations never reach their phones) |
 
 ---
 
@@ -156,7 +159,7 @@ phone: watchPosition (throttled ~3s)
 
 | Event | Payload | Notes |
 |---|---|---|
-| `join` | `{playerId?, name, teamName}` + ack | Re-join with stored `playerId` keeps identity |
+| `join` | `{playerId?, name, teamName?, hostPass?}` + ack | Re-join with stored `playerId` keeps identity. Username `host` + correct `hostPass` grants referee (teamName ignored — hosts are teamless); wrong password acks `{error}` |
 | `resync` | `{playerId}` | Sent on every (re)connect; server replies with full state |
 | `pos:update` | `{lat, lng}` | Throttled ~3 s, fire-and-forget, no acks |
 | `team:join` | `{teamName}` | Switch teams in the lobby |
@@ -212,7 +215,8 @@ lampas/
 
 1. Deploy (or tunnel) so you have an **HTTPS** URL.
 2. Everyone arrives with a **charged phone** (GPS + wake lock + socket is hungry).
-3. Host opens the URL first (first join = host/referee), players join with team names.
+3. Host logs in at `/host` with the host password (default `pass`; set
+   `HOST_PASSWORD` on the server for a public deploy); players join with team names.
 4. Host: tap the map (or "Center on me") to place the boundary, set the radius
    slider, set timers, toggle the seeker team, wait for green ✓ Ready on everyone.
 5. Grant **location permission** when prompted; iPhone users take phones off silent.

@@ -9,19 +9,22 @@ function makeGame() {
 }
 
 function setupTwoTeams(game) {
-  const host = game.addPlayer({ name: 'Host', teamName: 'Seekers' });
+  const host = game.addPlayer({ name: 'Host', teamName: 'Seekers', isHost: true });
   const h1 = game.addPlayer({ name: 'Alice', teamName: 'Owls' });
   const h2 = game.addPlayer({ name: 'Bob', teamName: 'Foxes' });
   game.setTeamRole(game.teams.get(host.teamId).id, 'seeker');
   return { host, h1, h2 };
 }
 
-test('first player becomes host', () => {
+test('host comes only from credentials, never join order', () => {
   const { game } = makeGame();
-  const a = game.addPlayer({ name: 'A' });
-  const b = game.addPlayer({ name: 'B' });
-  assert.equal(a.isHost, true);
-  assert.equal(b.isHost, false);
+  const a = game.addPlayer({ name: 'A' }); // first in — NOT host
+  const b = game.addPlayer({ name: 'B', isHost: true });
+  assert.equal(a.isHost, false);
+  assert.equal(b.isHost, true);
+  // Re-join without the flag demotes (password re-checked every join).
+  const b2 = game.addPlayer({ playerId: b.id, name: 'B' });
+  assert.equal(b2.isHost, false);
 });
 
 test('joining same team name reuses the team (case-insensitive)', () => {
@@ -50,6 +53,41 @@ test('win: last un-caught hider team standing', () => {
   assert.equal(game.winnerTeamId, h2.teamId);
   const over = events.find((e) => e.event === 'game:over');
   assert.equal(over.payload.winnerTeamName, 'Foxes');
+});
+
+test('win rule: 3 hider teams — ends only when ONE remains', () => {
+  const { game } = makeGame();
+  const { h1, h2 } = setupTwoTeams(game);
+  const h3 = game.addPlayer({ name: 'Cara', teamName: 'Wolves' });
+  game.startPhase('seek');
+  game.tagPlayer(h1.id);
+  assert.equal(game.phase, 'seek', 'two hider teams left — keep playing');
+  game.tagPlayer(h2.id);
+  assert.equal(game.phase, 'over');
+  assert.equal(game.winnerTeamId, h3.teamId);
+});
+
+test('win rule: single hider team from the start plays until 0', () => {
+  const { game } = makeGame();
+  const host = game.addPlayer({ name: 'Host', teamName: 'Seekers', isHost: true });
+  game.setTeamRole(game.teams.get(host.teamId).id, 'seeker');
+  const h1 = game.addPlayer({ name: 'Alice', teamName: 'Owls' });
+  game.startPhase('seek');
+  assert.equal(game.phase, 'seek', 'must not end at kickoff with 1 hider team');
+  game.tagPlayer(h1.id);
+  assert.equal(game.phase, 'over');
+  assert.equal(game.winnerTeamId, null); // seekers caught everyone
+});
+
+test('win rule: empty (player-less) teams never count as hiders', () => {
+  const { game } = makeGame();
+  const { h1, h2 } = setupTwoTeams(game);
+  // Bob abandons Foxes for Owls → Foxes becomes an empty shell team.
+  game.joinTeam(h2.id, 'Owls');
+  game.startPhase('seek');
+  assert.equal(game.initialHiderTeams, 1, 'phantom team must not inflate the count');
+  game.tagPlayer(h1.id);
+  assert.equal(game.phase, 'over');
 });
 
 test('tagging is a no-op outside seek phase and on seeker teams', () => {
@@ -132,6 +170,16 @@ test('playerState never contains positions; refereeState does', () => {
   const rs = game.refereeState();
   assert.equal(rs.positions.length, 1);
   assert.equal(rs.positions[0].playerId, h1.id);
+});
+
+test('refereeState(hostId) keeps `you` — host must not lose identity', () => {
+  const { game } = makeGame();
+  const { host, h1 } = setupTwoTeams(game);
+  game.updatePosition(h1.id, { lat: 51.5, lng: -0.12 });
+  const rs = game.refereeState(host.id);
+  assert.equal(rs.you.id, host.id);
+  assert.equal(rs.you.isHost, true);
+  assert.equal(rs.positions.length, 1); // still the full referee payload
 });
 
 test('reset to lobby restores caught teams to hiders', () => {

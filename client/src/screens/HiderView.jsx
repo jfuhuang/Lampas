@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { socket } from '../lib/socket.js';
 import Countdown from '../components/Countdown.jsx';
+import PlayerMap from '../components/PlayerMap.jsx';
 import { useGame } from '../context/GameContext.jsx';
 
 /**
@@ -9,7 +10,7 @@ import { useGame } from '../context/GameContext.jsx';
  * hiding spot. NO positions of anyone are ever shown here (privacy rule).
  */
 export default function HiderView() {
-  const { game } = useGame();
+  const { game, myPos } = useGame();
   const [confirming, setConfirming] = useState(false);
   const { phase, phaseEndsAt, serverNow, you } = game;
   const hiderTeams = game.teams.filter((t) => t.role === 'hider').length;
@@ -38,6 +39,9 @@ export default function HiderView() {
           {hiderTeams} hider team{hiderTeams === 1 ? '' : 's'} still free
         </p>
       </div>
+
+      {/* Collapsed by default — a lit screen gives away a hiding spot. */}
+      <PlayerMap boundary={game.boundary} myPos={myPos} collapsedByDefault />
 
       <div className="mt-auto flex flex-col gap-2">
         {confirming ? (

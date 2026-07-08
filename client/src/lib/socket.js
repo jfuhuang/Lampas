@@ -35,8 +35,10 @@ export function getStoredCreds() {
   }
 }
 
-export function storeCreds({ name, teamName }) {
-  localStorage.setItem(CREDS_KEY, JSON.stringify({ name, teamName }));
+// hostPass rides along (plaintext — party-game stakes, not real auth) so a
+// host phone re-earns the referee role on silent re-join after a restart.
+export function storeCreds({ name, teamName, hostPass }) {
+  localStorage.setItem(CREDS_KEY, JSON.stringify({ name, teamName, hostPass }));
 }
 
 // Server URL resolution:

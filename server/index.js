@@ -18,6 +18,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const TICK_MS = 2000;
 
+// Host login: join with this username + password to get the referee role.
+// Not real security — it keeps players from accidentally grabbing the host
+// panel at a party. Override the password via env for a public deploy.
+const HOST_USERNAME = 'host';
+const HOST_PASSWORD = process.env.HOST_PASSWORD || 'pass';
+
 const app = express();
 const httpServer = http.createServer(app);
 
@@ -38,12 +44,22 @@ const io = new Server(httpServer, {
  *   - (no room)      → broadcast
  * `perPlayer: true` fans out role-appropriate `game:state` to every player.
  */
+// State for one player: hosts get the referee payload (positions included)
+// BUILT ON TOP of their player payload, so `you` is always present.
+const stateFor = (player) =>
+  player.isHost ? game.refereeState(player.id) : game.playerState(player.id);
+
+const emitStateToHosts = () => {
+  for (const player of game.players.values()) {
+    if (player.isHost) io.to(player.id).emit('game:state', game.refereeState(player.id));
+  }
+};
+
 const game = new Game((event, payload, scope = {}) => {
   if (scope.perPlayer) {
     for (const player of game.players.values()) {
-      io.to(player.id).emit('game:state', game.playerState(player.id));
+      io.to(player.id).emit('game:state', stateFor(player));
     }
-    io.to('referees').emit('game:state', game.refereeState());
     return;
   }
   if (scope.room) io.to(scope.room).emit(event, payload);
@@ -54,7 +70,7 @@ const game = new Game((event, payload, scope = {}) => {
 // refreshes here so moving dots stay live without extra traffic.
 setInterval(() => {
   game.tick();
-  if (game.phase !== 'lobby') io.to('referees').emit('game:state', game.refereeState());
+  if (game.phase !== 'lobby') emitStateToHosts();
 }, TICK_MS);
 
 // ── Sockets ────────────────────────────────────────────────────────────
@@ -74,14 +90,22 @@ io.on('connection', (socket) => {
   };
 
   const sendState = (player) => {
-    socket.emit(
-      'game:state',
-      player.isHost ? game.refereeState() : game.playerState(player.id),
-    );
+    socket.emit('game:state', stateFor(player));
   };
 
-  socket.on('join', ({ playerId, name, teamName } = {}, ack) => {
-    const player = game.addPlayer({ playerId, name, teamName });
+  socket.on('join', ({ playerId, name, teamName, hostPass } = {}, ack) => {
+    const wantsHost = String(name ?? '').trim().toLowerCase() === HOST_USERNAME;
+    if (wantsHost && hostPass !== HOST_PASSWORD) {
+      if (typeof ack === 'function') ack({ error: 'Wrong host password' });
+      return;
+    }
+    // Hosts are referees, not team members — teamName is ignored for them.
+    const player = game.addPlayer({
+      playerId,
+      name,
+      teamName: wantsHost ? undefined : teamName,
+      isHost: wantsHost,
+    });
     bindPlayer(player.id);
     if (typeof ack === 'function') ack({ playerId: player.id, isHost: player.isHost });
     game.broadcastState();
@@ -154,7 +178,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     if (socket.data.playerId) {
       game.setConnected(socket.data.playerId, false);
-      io.to('referees').emit('game:state', game.refereeState());
+      emitStateToHosts();
     }
   });
 });
