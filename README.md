@@ -66,6 +66,23 @@ Open `http://localhost:5173`. Vite exposes the dev server on your LAN
 npm test           # unit tests (node:test) — geometry + game state machine
 ```
 
+### Dev view (no server, no GPS, no friends required)
+
+Open the app with **`?dev`** in the URL — e.g. `http://localhost:5173/?dev`:
+
+- Renders the **real screens** against a local mock game engine
+  (`client/src/dev/`): `socket.emit` is intercepted, so every button —
+  tags, ready, curveballs, phase changes, map taps — mutates mock state
+  instead of hitting the server (the real socket is disconnected).
+- **Screen picker**: force any screen (join / lobby / hider / seeker /
+  host / referee / game-over) or leave `auto` to see exactly what the
+  selected persona would see in the current phase.
+- **Persona picker**: view the game as the host, a hider, or a seeker.
+- **Simulation**: bots drift on the referee map every second, timers run,
+  hide auto-advances to seek. Buttons for `bot catch` and an out-of-bounds
+  warning toast complete the mimicry. `⏸ sim` pauses, `↺ reset` starts a
+  fresh scenario.
+
 ---
 
 ## ⚠️ HTTPS is required on phones
@@ -81,6 +98,23 @@ as secure; a bare LAN IP does not. For real phone testing:
   - Build command: `npm install && npm run build`
   - Start command: `npm start`
   - The server reads `PORT` from the environment.
+
+### Split deploy (client on Vercel, server elsewhere)
+
+The monolith (one URL) is the recommended path, but the client also runs fine
+as a static site pointed at a remote server:
+
+1. Deploy the **server** anywhere with HTTPS (Render/Railway/Fly) — it still
+   works standalone; CORS is open (`origin: true`).
+2. On **Vercel**, set the project root to `client/` and add an environment
+   variable (see `client/.env.example`):
+   ```
+   VITE_SERVER_URL=https://your-server.onrender.com
+   ```
+3. Redeploy. ⚠️ Vite bakes env vars in at **build time** — changing the
+   variable requires a rebuild, and it must be `https://` or phones will
+   refuse GPS/camera. Leave `VITE_SERVER_URL` unset for the monolith and
+   for local dev (the Vite proxy handles it).
 
 ---
 
@@ -161,8 +195,9 @@ lampas/
 └── client/
     ├── vite.config.js     # tailwind v4 plugin + /socket.io dev proxy
     └── src/
-        ├── App.jsx        # thin: provider + role router + overlays
+        ├── App.jsx        # thin: provider + role router + overlays (+ ?dev gate)
         ├── context/       # GameContext — useGame()/useToast() hooks own all state
+        ├── dev/           # ?dev view: DevApp (controls) + engine (mock game)
         ├── screens/       # JoinScreen, Lobby, HiderView, SeekerView,
         │                  #   HostView (tabs: Referee / Play), RefereeView
         ├── components/    # Countdown, Toast, TorchOverlay, RefereeMap (Leaflet)

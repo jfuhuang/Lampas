@@ -22,6 +22,9 @@ import {
  */
 const GameContext = createContext(null);
 
+// Exported so dev/DevApp.jsx can mount screens against a mock value.
+export { GameContext };
+
 export function GameProvider({ children }) {
   const [game, setGame] = useState(null); // last `game:state` payload
   const [joined, setJoined] = useState(!!getStoredPlayerId());

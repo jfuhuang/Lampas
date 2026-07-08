@@ -39,14 +39,39 @@ export function storeCreds({ name, teamName }) {
   localStorage.setItem(CREDS_KEY, JSON.stringify({ name, teamName }));
 }
 
-// Same-origin: Vite proxies /socket.io in dev; the Node server serves both in prod.
-export const socket = io({
+// Server URL resolution:
+// - VITE_SERVER_URL set (split deploy, e.g. client on Vercel, server on
+//   Render/Railway/Fly) → connect there. Must be https:// in production.
+// - unset → same-origin: Vite proxies /socket.io in dev; the Node server
+//   serves both in the monolith deploy.
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || undefined;
+
+export const socket = io(SERVER_URL, {
   reconnection: true,
   reconnectionDelay: 500, // retry fast — drops are short
   reconnectionDelayMax: 3000,
   timeout: 8000,
   autoConnect: true,
 });
+
+/**
+ * Dev-mode hook: when an interceptor is installed (see dev/DevApp.jsx),
+ * every socket.emit from any screen is swallowed and routed to the local
+ * mock engine instead of the wire. Screens never know the difference —
+ * that's the point: the dev view exercises the REAL components.
+ */
+let emitInterceptor = null;
+export function setEmitInterceptor(fn) {
+  emitInterceptor = fn;
+}
+const realEmit = socket.emit.bind(socket);
+socket.emit = (event, ...args) => {
+  if (emitInterceptor) {
+    emitInterceptor(event, ...args);
+    return socket;
+  }
+  return realEmit(event, ...args);
+};
 
 socket.on('connect', () => {
   const playerId = getStoredPlayerId();

@@ -198,7 +198,8 @@ the code as it exists — keep this section updated when the code changes.
 | Screens | `client/src/screens/` | `JoinScreen`, `Lobby`, `HiderView`, `SeekerView`, `HostView` (tabs: 👑 Referee / 🔦 Play), `RefereeView` (rendered inside HostView) |
 | Components | `client/src/components/` | `Countdown` (server-clock corrected), `Toast`, `TorchOverlay` (full-screen white flash), `RefereeMap` (Leaflet, plain JS — NOT react-leaflet) |
 | Device APIs | `client/src/lib/geo.js` | `startPositionStream` (3s throttle), `getCurrentPosition`, `requestWakeLock` (re-acquires on visibility), `unlockAudio`, `playRevealTone`, `vibrate`, `enableTorch`/`disableTorch` |
-| Socket client | `client/src/lib/socket.js` | Single shared socket, `resync` on every connect AND on tab-visible. Persistence: playerId (`lampas.playerId`) + name/team creds (`lampas.creds`) in `localStorage` |
+| Socket client | `client/src/lib/socket.js` | Single shared socket, `resync` on every connect AND on tab-visible. Persistence: playerId (`lampas.playerId`) + name/team creds (`lampas.creds`) in `localStorage`. Exposes `setEmitInterceptor()` for the dev view. Server URL from `VITE_SERVER_URL` (build-time, split deploys e.g. Vercel client + remote server — see `client/.env.example`); unset = same-origin monolith |
+| Dev view | `client/src/dev/DevApp.jsx`, `client/src/dev/engine.js` | `?dev` URL flag swaps the app for a mock-driven harness: real screens, screen + persona pickers, local engine mirroring server rules (tag/convert/win/timers/curveballs), bot drift on the map, sim pause/reset. `socket.emit` intercepted, real socket disconnected. Engine is a deliberate throwaway mimic — `server/game.js` stays the rules source of truth |
 
 ### Deltas / decisions made during implementation
 

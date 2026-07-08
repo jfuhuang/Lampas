@@ -6,12 +6,18 @@ import SeekerView from './screens/SeekerView.jsx';
 import HostView from './screens/HostView.jsx';
 import TorchOverlay from './components/TorchOverlay.jsx';
 import Toast from './components/Toast.jsx';
+import DevApp from './dev/DevApp.jsx';
+
+// `?dev` swaps the whole app for the mock-driven dev view (dev/DevApp.jsx):
+// real screens, local fake engine, no server needed.
+const DEV_MODE = new URLSearchParams(window.location.search).has('dev');
 
 /**
  * App is deliberately thin: GameProvider owns all socket/game state
  * (see context/GameContext.jsx); Router just picks the screen by role.
  */
 export default function App() {
+  if (DEV_MODE) return <DevApp />;
   return (
     <GameProvider>
       <Shell>
