@@ -99,6 +99,20 @@ export class Game {
     return team;
   }
 
+  /**
+   * Host kicks a player (lobby only — mid-game removals would mangle team
+   * state; the referee force-tags a problem team instead). Not a ban: the
+   * kicked phone can re-join. Empty shell teams left behind are harmless —
+   * hiderTeams() ignores player-less teams.
+   */
+  removePlayer(playerId) {
+    if (this.phase !== 'lobby') return null;
+    const player = this.players.get(playerId);
+    if (!player || player.isHost) return null; // hosts can't be kicked
+    this.players.delete(playerId);
+    return player;
+  }
+
   setReady(playerId, ready = true) {
     const player = this.players.get(playerId);
     if (player) player.ready = !!ready;

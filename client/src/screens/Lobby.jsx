@@ -8,7 +8,7 @@ import { useGame } from '../context/GameContext.jsx';
  * REQUIRE a gesture on mobile, so they piggyback here (platform constraint).
  */
 export default function Lobby() {
-  const { game, you } = useGame();
+  const { game, you, logout } = useGame();
 
   const handleReady = async () => {
     unlockAudio();
@@ -41,12 +41,19 @@ export default function Lobby() {
         <p className="text-center text-xs text-neutral-500">
           Ready also enables sound &amp; keeps your screen awake. Arrive charged — GPS eats battery.
         </p>
+        <button
+          onClick={logout}
+          className="mx-auto mt-1 px-3 py-2 text-xs font-semibold text-neutral-500 underline active:scale-95"
+        >
+          Log out (forget me on this phone)
+        </button>
       </div>
     </div>
   );
 }
 
-export function TeamList({ teams, youId }) {
+/** `onKick(player)` (host lobby only) adds a ✕ button per player. */
+export function TeamList({ teams, youId, onKick }) {
   return (
     <div className="flex flex-col gap-3">
       {teams.map((team) => (
@@ -65,13 +72,22 @@ export function TeamList({ teams, youId }) {
             {team.players.map((p) => (
               <li
                 key={p.id}
-                className={`rounded-lg px-2 py-1 text-sm ${
+                className={`flex items-center gap-1 rounded-lg px-2 py-1 text-sm ${
                   p.id === youId ? 'bg-lamp/20 text-lamp' : 'bg-neutral-800 text-neutral-300'
                 } ${!p.connected ? 'opacity-40' : ''}`}
               >
                 {p.isHost && '👑 '}
                 {p.name}
                 {p.ready ? ' ✓' : ''}
+                {onKick && !p.isHost && (
+                  <button
+                    onClick={() => onKick(p)}
+                    aria-label={`Kick ${p.name}`}
+                    className="-mr-0.5 ml-1 rounded px-1.5 py-0.5 font-black text-red-400 active:scale-90"
+                  >
+                    ✕
+                  </button>
+                )}
               </li>
             ))}
           </ul>

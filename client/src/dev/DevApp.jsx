@@ -42,7 +42,8 @@ export default function DevApp() {
       if (event === 'host:trigger' && payload?.type === 'sound') {
         unlockAudio(); // button click = the required gesture
         playRevealTone(3); // short burst — it's a dev tool, not a siren test
-        vibrate();
+        vibrate(); // (production: host phones stay silent; dev keeps the
+        // burst as button feedback regardless of persona)
       }
       if (event === 'host:trigger' && payload?.type === 'shrink') {
         showToast('THE ZONE IS SHRINKING — check the boundary!', 'warn');
@@ -84,6 +85,7 @@ export default function DevApp() {
     dismissToast: () => setToast(null),
     showToast,
     join: (name, teamName) => dispatch('join', { name, teamName }),
+    logout: () => showToast('Dev mode — logout is a no-op here', 'info'),
   };
 
   return (
@@ -102,7 +104,8 @@ export default function DevApp() {
         <div className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 pb-6 lg:max-w-6xl">
           <ScreenFor key={`${screen}-${state.youId}`} screen={screen} game={game} />
         </div>
-        {torchActive && <TorchOverlay />}
+        {/* Host persona is exempt from the flash, same as production */}
+        {torchActive && !game.you?.isHost && <TorchOverlay />}
         {toast && <Toast key={toast.at} {...toast} onDone={() => setToast(null)} />}
       </div>
     </GameContext.Provider>

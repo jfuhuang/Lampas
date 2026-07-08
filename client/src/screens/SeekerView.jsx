@@ -1,24 +1,23 @@
-import { useState } from 'react';
-import { socket } from '../lib/socket.js';
 import Countdown from '../components/Countdown.jsx';
 import PlayerMap from '../components/PlayerMap.jsx';
 import { useGame } from '../context/GameContext.jsx';
 import { PhaseBadge, GameOver } from './HiderView.jsx';
 
 /**
- * Seeker screen: countdown + tag buttons for every still-hiding player.
- * The physical catch happens with a real flashlight; the tap here is just
- * the adjudication (the app cannot detect the beam — platform constraint).
- * Seekers NEVER see hider positions.
+ * Seeker screen: countdown, boundary map, and a read-only hunt list.
+ * Seekers do NOT tag — when a flashlight beam lands, the caught hider taps
+ * "I'm caught" on their own phone (or the referee tags manually). This
+ * keeps the ground truth on the caught side and kills disputed tags.
  */
 export default function SeekerView() {
   const { game, myPos } = useGame();
-  const [confirmTarget, setConfirmTarget] = useState(null); // player object
   const { phase, phaseEndsAt, serverNow } = game;
 
   if (phase === 'over') return <GameOver />;
 
-  const hiderTeams = game.teams.filter((t) => t.role === 'hider');
+  const hiderTeams = game.teams.filter(
+    (t) => t.role === 'hider' && t.players.length > 0,
+  );
 
   return (
     <div className="flex flex-1 flex-col gap-5 py-6">
@@ -41,58 +40,23 @@ export default function SeekerView() {
         </div>
       ) : (
         <div className="flex flex-col gap-3">
-          <p className="text-center text-sm text-neutral-400">
-            Shine your flashlight on a hider, then tag them here:
-          </p>
+          <div className="rounded-xl border border-neutral-800 bg-panel p-4 text-center">
+            <p className="text-sm text-neutral-300">
+              Lit someone up? <b className="text-lamp">They tap “I'm caught”</b> on their
+              phone. Refusing? Call the referee over.
+            </p>
+          </div>
           {hiderTeams.map((team) => (
             <div key={team.id} className="rounded-xl border border-neutral-800 bg-panel p-3">
-              <div className="font-bold text-emerald-300">{team.name}</div>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {team.players.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => setConfirmTarget(p)}
-                    className="rounded-lg bg-neutral-800 px-3 py-3 font-bold text-neutral-100 active:scale-95"
-                  >
-                    🔦 Tag {p.name}
-                  </button>
-                ))}
+              <div className="font-bold text-emerald-300">{team.name} — still hiding</div>
+              <div className="mt-1 text-sm text-neutral-400">
+                {team.players.map((p) => p.name).join(' · ')}
               </div>
             </div>
           ))}
           {hiderTeams.length === 0 && (
             <p className="text-center text-neutral-400">No hiders left…</p>
           )}
-        </div>
-      )}
-
-      {confirmTarget && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-panel p-5">
-            <p className="text-center text-lg font-bold">
-              Confirm: you lit up <span className="text-lamp">{confirmTarget.name}</span>?
-            </p>
-            <p className="mt-1 text-center text-sm text-neutral-400">
-              Their whole team converts to seekers.
-            </p>
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={() => setConfirmTarget(null)}
-                className="flex-1 rounded-xl bg-neutral-700 px-4 py-4 font-bold active:scale-95"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  socket.emit('tag:player', { targetPlayerId: confirmTarget.id });
-                  setConfirmTarget(null);
-                }}
-                className="flex-1 rounded-xl bg-red-600 px-4 py-4 font-black text-white active:scale-95"
-              >
-                Tag!
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>

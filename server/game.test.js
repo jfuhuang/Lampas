@@ -182,6 +182,19 @@ test('refereeState(hostId) keeps `you` — host must not lose identity', () => {
   assert.equal(rs.positions.length, 1); // still the full referee payload
 });
 
+test('kick: lobby-only, never the host, player fully removed', () => {
+  const { game } = makeGame();
+  const { host, h1 } = setupTwoTeams(game);
+  assert.equal(game.removePlayer(host.id), null, 'host is unkickable');
+  const removed = game.removePlayer(h1.id);
+  assert.equal(removed.id, h1.id);
+  assert.equal(game.players.has(h1.id), false);
+  // Mid-game kick refused
+  const h2 = game.addPlayer({ name: 'Zed', teamName: 'Owls' });
+  game.startPhase('seek');
+  assert.equal(game.removePlayer(h2.id), null);
+});
+
 test('reset to lobby restores caught teams to hiders', () => {
   const { game } = makeGame();
   const { h1 } = setupTwoTeams(game);

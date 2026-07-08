@@ -100,22 +100,17 @@ export function unlockAudio() {
   }
 }
 
-/** Loud two-tone siren for the `sound` curveball. Runs `seconds` long. */
+/** Quiet reveal chime for the `sound` curveball. Runs `seconds` long. */
 export function playRevealTone(seconds = 10) {
   if (!audioCtx) return false;
-  const now = audioCtx.currentTime;
-  const gain = audioCtx.createGain();
-  gain.gain.setValueAtTime(0.6, now);
-  gain.connect(audioCtx.destination);
-  const osc = audioCtx.createOscillator();
-  osc.type = 'square';
-  // Alternate 880/660 Hz every half second — carries outdoors.
-  for (let t = 0; t < seconds; t += 0.5) {
-    osc.frequency.setValueAtTime(t % 1 === 0 ? 880 : 660, now + t);
-  }
-  osc.connect(gain);
-  osc.start(now);
-  osc.stop(now + seconds);
+  const audio = new Audio('/sounds/reveal.mp3');
+  audio.volume = 0.35;
+  audio.loop = true;
+  audio.play().catch(() => {});
+  setTimeout(() => {
+    audio.pause();
+    audio.currentTime = 0;
+  }, seconds * 1000);
   return true;
 }
 

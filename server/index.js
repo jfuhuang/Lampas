@@ -139,8 +139,11 @@ io.on('connection', (socket) => {
     game.broadcastState();
   });
 
+  // Catch adjudication is on the CAUGHT side: the hider self-reports, or
+  // the referee tags manually. Seekers cannot tag — prevents disputed /
+  // trigger-happy tags; the hider's own confirmation is the ground truth.
   socket.on('tag:player', ({ targetPlayerId } = {}) => {
-    game.tagPlayer(targetPlayerId, socket.data.playerId);
+    if (isHost()) game.tagPlayer(targetPlayerId, socket.data.playerId);
   });
 
   socket.on('caught:self', () => {
@@ -172,6 +175,28 @@ io.on('connection', (socket) => {
 
   socket.on('host:reset', () => {
     if (isHost()) game.startPhase('lobby');
+  });
+
+  // Voluntary logout. Same rules as a kick (lobby-only, hosts stay) —
+  // mid-game the record survives and just greys out on the referee map.
+  socket.on('leave', () => {
+    if (!socket.data.playerId) return;
+    const removed = game.removePlayer(socket.data.playerId);
+    if (removed) {
+      socket.data.playerId = null;
+      game.broadcastState();
+    }
+  });
+
+  socket.on('host:kick', ({ targetPlayerId } = {}) => {
+    if (!isHost()) return;
+    const removed = game.removePlayer(targetPlayerId);
+    if (!removed) return;
+    // Tell the kicked phone first (it resets to the join screen and drops
+    // its stored playerId so it doesn't silently auto-rejoin), then update
+    // everyone else. Their socket stays connected — it's just playerless.
+    io.to(removed.id).emit('kicked', { by: game.players.get(socket.data.playerId)?.name });
+    game.broadcastState();
   });
 
   // Surface disconnects — referee view greys out quiet phones.

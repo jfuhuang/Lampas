@@ -11,7 +11,7 @@ import { getStoredCreds } from '../lib/socket.js';
  * field disappears for them.
  */
 export default function JoinScreen() {
-  const { join, connected } = useGame();
+  const { join, connected, logout } = useGame();
   const hostMode = window.location.pathname === '/host';
   const stored = getStoredCreds();
   const [name, setName] = useState(hostMode ? 'host' : (stored?.name ?? ''));
@@ -113,6 +113,20 @@ export default function JoinScreen() {
           </p>
         )}
       </form>
+
+      {stored && (
+        <button
+          onClick={() => {
+            logout();
+            setName('');
+            setTeamName('');
+            setHostPass('');
+          }}
+          className="mx-auto px-3 py-1 text-xs font-semibold text-neutral-500 underline active:scale-95"
+        >
+          Not you? Clear saved info
+        </button>
+      )}
 
       <p className="text-center text-xs text-neutral-500">
         {hostMode ? (

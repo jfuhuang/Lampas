@@ -3,8 +3,10 @@ import {
   socket,
   getStoredPlayerId,
   storePlayerId,
+  clearPlayerId,
   getStoredCreds,
   storeCreds,
+  clearCreds,
 } from '../lib/socket.js';
 import {
   startPositionStream,
@@ -33,6 +35,7 @@ export function GameProvider({ children }) {
   const [myPos, setMyPos] = useState(null); // own GPS only — never others'
   const [toast, setToast] = useState(null); // { text, tone, at }
   const soundPlayedFor = useRef(0); // dedupe sound event across resyncs
+  const isHostRef = useRef(false); // event packets arrive outside React state
   const autoRejoined = useRef(false); // silent re-join in flight (guards stale unknownPlayer replies)
 
   const showToast = useCallback((text, tone = 'info') => {
@@ -57,6 +60,15 @@ export function GameProvider({ children }) {
     },
     [showToast],
   );
+
+  /** Full local sign-out: wipe stored identity + creds, back to Join. */
+  const logout = useCallback(() => {
+    socket.emit('leave'); // server drops us from the lobby roster (lobby only)
+    clearPlayerId();
+    clearCreds();
+    setJoined(false);
+    setGame(null);
+  }, []);
 
   // ── Socket subscriptions ─────────────────────────────────────────────
   useEffect(() => {
@@ -95,20 +107,24 @@ export function GameProvider({ children }) {
         return;
       }
       setGame(state);
+      isHostRef.current = !!state.you?.isHost;
       // Derive overlays from authoritative state so a resync after a drop
       // still shows/hides them correctly (never rely on event packets).
+      // The HOST is exempt from all curveball effects — the referee panel
+      // must stay usable while everyone else's screen flashes/rings.
       const ev = state.activeEvent;
-      setTorchActive(ev?.type === 'torch');
+      setTorchActive(ev?.type === 'torch' && !state.you?.isHost);
       if (ev?.type === 'sound' && ev.endsAt !== soundPlayedFor.current) {
         soundPlayedFor.current = ev.endsAt;
         const secondsLeft = Math.max(1, (ev.endsAt - state.serverNow) / 1000);
-        // Only HIDER phones make noise (audible reveal); everyone vibrates.
+        // Only HIDER phones make noise (audible reveal); players vibrate.
         if (state.you?.role === 'hider') playRevealTone(secondsLeft);
-        vibrate();
+        if (!state.you?.isHost) vibrate();
       }
     };
 
     const onTorch = () => {
+      if (isHostRef.current) return; // referee screen never flashes
       setTorchActive(true);
       vibrate();
       enableTorch(); // Android bonus; harmless no-op on iOS
@@ -125,6 +141,14 @@ export function GameProvider({ children }) {
       );
     };
     const onShrink = () => showToast('THE ZONE IS SHRINKING — check the boundary!', 'warn');
+    const onKicked = () => {
+      // Drop the stored playerId so we don't silently auto-rejoin; creds
+      // stay so re-joining (it's not a ban) is one tap.
+      clearPlayerId();
+      setJoined(false);
+      setGame(null);
+      showToast('The host removed you from the lobby', 'alert');
+    };
     const onConnect = () => setConnected(true);
     const onDisconnect = () => {
       setConnected(false);
@@ -136,6 +160,7 @@ export function GameProvider({ children }) {
     socket.on('event:shrink', onShrink);
     socket.on('team:converted', onConverted);
     socket.on('boundary:warning', onWarning);
+    socket.on('kicked', onKicked);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     // The module-level connect handler may have resynced BEFORE these
@@ -152,6 +177,7 @@ export function GameProvider({ children }) {
       socket.off('event:shrink', onShrink);
       socket.off('team:converted', onConverted);
       socket.off('boundary:warning', onWarning);
+      socket.off('kicked', onKicked);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
     };
@@ -188,6 +214,7 @@ export function GameProvider({ children }) {
     dismissToast: () => setToast(null),
     showToast,
     join,
+    logout,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

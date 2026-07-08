@@ -25,8 +25,9 @@ One URL, nothing to coordinate, no database — state lives in memory for one ni
 2. **Hide phase** — hiders get a countdown to get inside the boundary and hide.
    Seekers are frozen at base.
 3. **Seek phase** — seekers roam with real flashlights. When a beam hits a hider,
-   the seeker taps **Tag [player]** (or the hider taps **I'm caught**) — the caught
-   player's **whole team converts to seekers**.
+   the **caught hider taps "I'm caught"** on their own phone (or the referee tags
+   them manually — seekers can't tag) — the caught player's **whole team converts
+   to seekers**.
 4. **Curveballs** (host-triggered):
    - 🔊 **Sound** — every hider phone plays a loud siren (audible reveal)
    - 🔦 **Torch** — full-screen white "LIGHTS ON" flash on every phone
@@ -126,7 +127,7 @@ as a static site pointed at a remote server:
 | Constraint | How Lampas handles it |
 |---|---|
 | iOS Safari has **no torch API** | Torch event = full-screen white flash on every phone (screen *is* the lamp); Android Chrome additionally gets the real camera torch as a bonus |
-| The app **can't see a flashlight beam** | Catches are human-adjudicated: seeker taps "Tag", or hider taps "I'm caught" (both with confirmation) |
+| The app **can't see a flashlight beam** | Catches are human-adjudicated: the caught hider taps "I'm caught" (with confirmation), or the referee tags manually. Seekers cannot tag |
 | GPS is **~5–15 m accurate** outdoors | Boundary is a circle only, with a 10 m noise margin and a 30 s grace period before penalties. No mechanic needs sub-10 m precision |
 | Audio needs a **user gesture** to unlock | The lobby "Ready" tap unlocks the AudioContext; `navigator.vibrate()` is the Android backup for silent iPhones |
 | Screens sleep, sockets drop | Screen Wake Lock API (re-acquired on tab return); clients **re-sync full state on every reconnect** instead of relying on event delivery |
@@ -164,13 +165,15 @@ phone: watchPosition (throttled ~3s)
 | `pos:update` | `{lat, lng}` | Throttled ~3 s, fire-and-forget, no acks |
 | `team:join` | `{teamName}` | Switch teams in the lobby |
 | `player:ready` | `{ready}` | Lobby ready toggle |
-| `tag:player` | `{targetPlayerId}` | Seeker adjudicates a catch |
-| `caught:self` | — | Hider self-reports a catch |
+| `tag:player` | `{targetPlayerId}` | **Host only** — referee manual tag |
+| `caught:self` | — | Hider self-reports a catch (the normal path) |
 | `host:startPhase` | `{phase}` | Host only: `hide` / `seek` / `lobby` |
 | `host:trigger` | `{type}` | Host only: `sound` / `torch` / `shrink` |
 | `host:config` | `{boundary?, settings?}` | Host only: circle + timers |
 | `host:setTeamRole` | `{teamId, role}` | Host only, lobby only: pick starting seekers |
 | `host:reset` | — | Host only: back to lobby |
+| `host:kick` | `{targetPlayerId}` | Host only, lobby only: remove a player (not a ban — they can re-join). Kicked phone gets a `kicked` event and resets to the join screen |
+| `leave` | — | Voluntary logout (lobby only removes the record; mid-game it just greys out). Client also wipes stored playerId + creds |
 
 **Server → client**
 

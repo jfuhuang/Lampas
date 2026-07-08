@@ -41,6 +41,10 @@ export function storeCreds({ name, teamName, hostPass }) {
   localStorage.setItem(CREDS_KEY, JSON.stringify({ name, teamName, hostPass }));
 }
 
+export function clearCreds() {
+  localStorage.removeItem(CREDS_KEY);
+}
+
 // Server URL resolution:
 // - VITE_SERVER_URL set (split deploy, e.g. client on Vercel, server on
 //   Render/Railway/Fly) → connect there. Must be https:// in production.

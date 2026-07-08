@@ -235,7 +235,27 @@ the code as it exists — keep this section updated when the code changes.
   `activeEvent`, so a phone that reconnects mid-torch still shows/clears the flash
   correctly. `event:torch` packet is only the fast path (vibrate + Android auto-torch).
 - **Sound curveball**: only HIDER phones play the siren (it's an audible reveal of
-  hiders); everyone vibrates. Tone is a square-wave 880/660 Hz alternation via WebAudio.
+  hiders); players vibrate. Tone is a square-wave 880/660 Hz alternation via WebAudio.
+- **Log out** (2026-07-08): `logout()` in GameContext wipes `lampas.playerId` +
+  `lampas.creds` and emits `leave` (server removes the record — lobby only, same rules
+  as kick; mid-game the record stays and greys out). UI: "Log out" link in the Lobby,
+  "Not you? Clear saved info" on the Join screen when creds exist.
+- **Host can kick from the lobby** (2026-07-08): `host:kick` → `Game.removePlayer()`
+  (lobby-only, host unkickable, not a ban). Kicked phone receives `kicked`, clears its
+  stored playerId (blocks silent auto-rejoin) but keeps creds for one-tap re-join, and
+  resets to JoinScreen. ✕ buttons appear in the referee roster (`TeamList`'s optional
+  `onKick` prop) during lobby only. Mid-game problem players: force-tag their team.
+- **Tagging is caught-side only** (2026-07-08): `tag:player` is HOST-ONLY server-side;
+  seekers have NO tag buttons — the caught hider taps "I'm caught" (`caught:self`),
+  or the referee tags manually. Ground truth lives with the caught player; kills
+  disputed tags. SeekerView shows a read-only hunt list instead.
+- **Boundary radius = slider (50–600m) + manual number input (20–5000m)** in the
+  referee lobby panel; both drive the same `host:config`. Slider clamps its own
+  display at 600 when the typed value exceeds it.
+- **Host is exempt from ALL curveball effects** (2026-07-08): no torch flash, no
+  siren, no vibration — the referee panel must stay usable while everyone else's
+  screen flashes. Gated in GameContext on `you.isHost` (state-derived path) and an
+  `isHostRef` (fast packet path); dev view mirrors the flash exemption.
 - **Seek-timer expiry = surviving hiders win** (`reason: 'time'` on `game:over`).
 - **Win rule (hardened 2026-07-08)**: game ends the moment exactly ONE hider team
   remains — they win. Two guards: (1) empty player-less "shell" teams (left behind by

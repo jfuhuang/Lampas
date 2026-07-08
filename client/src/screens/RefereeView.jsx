@@ -112,19 +112,41 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
             …or tap the map to place the center
           </div>
         </div>
-        <label className="mt-3 block text-sm font-semibold text-neutral-300">
-          Radius: <span className="text-lamp">{boundary?.radiusM ?? 150} m</span>
-          <input
-            type="range"
-            min="50"
-            max="600"
-            step="10"
-            value={boundary?.radiusM ?? 150}
-            onChange={(e) => onRadius(+e.target.value)}
-            disabled={!boundary}
-            className="mt-1 w-full accent-amber-400"
-          />
-        </label>
+        <div className="mt-3">
+          <span className="text-sm font-semibold text-neutral-300">
+            Radius: <span className="text-lamp">{boundary?.radiusM ?? 150} m</span>
+          </span>
+          <div className="mt-1 flex items-center gap-3">
+            <input
+              type="range"
+              min="50"
+              max="600"
+              step="10"
+              value={Math.min(600, boundary?.radiusM ?? 150)}
+              onChange={(e) => onRadius(+e.target.value)}
+              disabled={!boundary}
+              className="min-w-0 flex-1 accent-amber-400"
+              aria-label="Boundary radius slider"
+            />
+            <label className="flex items-center gap-1 text-sm font-semibold text-neutral-400">
+              <input
+                type="number"
+                min="20"
+                max="5000"
+                step="5"
+                value={boundary?.radiusM ?? 150}
+                onChange={(e) => {
+                  const v = Math.max(20, Math.min(5000, +e.target.value || 20));
+                  onRadius(v);
+                }}
+                disabled={!boundary}
+                className="w-20 rounded-lg border border-neutral-700 bg-night px-2 py-1.5 text-right text-base outline-none focus:border-lamp disabled:opacity-40"
+                aria-label="Boundary radius in meters"
+              />
+              m
+            </label>
+          </div>
+        </div>
       </Section>
 
       <Section title="2 · Timers">
@@ -255,9 +277,18 @@ function LiveControls({ game, boundary }) {
 /* ── Shared bits ──────────────────────────────────────────────────────── */
 
 function PlayerRoster({ game }) {
+  const toast = useToast();
+  // Kicking is lobby-only (server enforces too) — mid-game, force-tag instead.
+  const onKick =
+    game.phase === 'lobby'
+      ? (p) => {
+          socket.emit('host:kick', { targetPlayerId: p.id });
+          toast(`Kicked ${p.name} — they can re-join anytime`, 'info');
+        }
+      : undefined;
   return (
     <Section title={`Players (${game.teams.reduce((n, t) => n + t.players.length, 0)})`}>
-      <TeamList teams={game.teams} youId={game.you?.id} />
+      <TeamList teams={game.teams} youId={game.you?.id} onKick={onKick} />
     </Section>
   );
 }
