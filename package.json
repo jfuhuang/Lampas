@@ -1,0 +1,23 @@
+{
+  "name": "lampas",
+  "version": "1.0.0",
+  "description": "Lampas — flashlight hide & seek facilitator. Monolithic Node server + React client.",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "dev": "node server/index.js",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client install && npm --prefix client run build",
+    "start": "NODE_ENV=production node server/index.js",
+    "test": "node --test server/*.test.js",
+    "postinstall": "npm --prefix client install"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  },
+  "license": "MIT"
+}

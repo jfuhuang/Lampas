@@ -1,0 +1,272 @@
+# Lampas — Flashlight Hide & Seek
+
+> **Name:** Lampas (Greek λαμπάς, "torch/lamp" — the lamps kept burning through the night
+> in the Parable of the Ten Virgins, Matthew 25). A nighttime game about staying lit and staying ready.
+
+This file is the project context. If you're an AI coding agent, read it fully before writing code.
+It captures every design decision and constraint already worked out — don't re-litigate them unless asked.
+
+---
+
+## What the game is
+
+Outdoor, nighttime flashlight hide-and-seek played with friends.
+
+- Start: one team of 2–3 **seekers**; everyone else are **hiders**.
+- Hiders get a set time to hide inside a boundary.
+- A hider is "caught" when a seeker shines a flashlight on them → that hider/team converts to seekers.
+- **Last un-caught hider team standing wins.**
+
+The web app is a **facilitator and referee**, not a sensor. It runs timers, checks boundaries,
+tracks team positions, and fires "curveball" events. It does NOT detect the physical flashlight catch.
+
+---
+
+## Hard platform constraints (these SHAPE the design — do not design around them)
+
+1. **Flashlight/torch:** Android Chrome can toggle torch via the camera `torch` constraint.
+   **iOS Safari cannot — no web API exists.** So the "lights on" event must show a full-screen
+   prompt to *everyone*, and *additionally* auto-toggle on Android. Auto-torch = bonus, never load-bearing.
+
+2. **No beam detection.** The app cannot see a flashlight hitting a player. The "caught" moment is
+   adjudicated by a human: seeker taps "Tag [player]" or the caught hider taps "I'm caught."
+
+3. **GPS is ~5–15m accurate outdoors, worse near trees/buildings.** Use generous margins.
+   Boundaries are a **circle (center + radius)**, never a polygon. No mechanic may need sub-10m precision.
+
+4. **Sound:** audio must be unlocked by a user tap first (do it in the lobby). iPhones on silent won't ring.
+   Add `navigator.vibrate()` as an Android-only backup.
+
+5. **Screen sleep / battery:** use the Screen Wake Lock API to keep phones awake. GPS + wake lock +
+   live socket drains battery fast — players should arrive charged.
+
+6. **Privacy of positions:** live team locations go to the **server** (for logic) and a **host/referee view**
+   only. Seekers never get live hider positions — that would ruin the game. Positions surface to seekers
+   only during a "reveal" curveball.
+
+7. **HTTPS required.** Geolocation and camera APIs won't work without it.
+
+---
+
+## Architecture
+
+Single Node service serves the React build AND the WebSocket — one HTTPS URL, nothing to coordinate.
+
+- **Frontend:** Vite + React + Tailwind. Leaflet for the referee map. Players get a minimal role-based UI.
+- **Backend:** Node + Express + **Socket.IO**.
+- **State:** IN MEMORY (a plain `Map`). This is a one-night ephemeral game — **no database, no MySQL, no schema.**
+- **Deploy:** Render / Railway / Fly.io (free HTTPS). For phone testing pre-deploy, tunnel with `cloudflared` or `ngrok`.
+
+### Data flow
+```
+phone: watchPosition (throttled ~3s)
+  → socket.emit("pos:update", {lat,lng})
+    → server stores per player, computes team centroid + boundary check on a ~2s tick
+      → emits "game:state" (referee = full; players = role-appropriate)
+      → emits events: "event:sound" | "event:torch" | "event:shrink"
+```
+
+### Socket events
+- **Client→server:** `join`, `resync`, `pos:update`, `tag:player`, `caught:self`, `host:startPhase`, `host:trigger`
+- **Server→client:** `game:state`, `phase:changed`, `event:sound`, `event:torch`, `event:shrink`, `boundary:warning`, `game:over`
+
+---
+
+## Networking & resilience (outdoor mobile = worst-case network)
+
+Socket.IO is the right pick for the timeline, BUT the design must expect constant short disconnects.
+Most drops won't even be network — they'll be **lifecycle**: locking the screen, taking a call, or a
+notification backgrounding the tab suspends JS and drops the socket. Wake Lock reduces this, not all of it.
+The patterns below cover network drops and lifecycle drops identically, so no separate handling is needed.
+
+**Core principle: server is authoritative; clients re-sync full state on every (re)connect.**
+Do NOT rely on guaranteed delivery of individual event packets. On connect/reconnect the client emits
+`resync` and the server replies with the entire current `game:state` (current phase, current boundary
+radius, whether an event is active, who's a seeker). A client that missed events while dropped renders
+correctly instantly, because it pulls current truth instead of replaying history. Less code, more robust.
+
+**Two traffic classes — treat them differently:**
+- `pos:update` = **loss-tolerant, fire-and-forget.** Sent ~3s, GPS already 5–15m fuzzy, each update
+  supersedes the last, boundary check runs on a server tick against latest-known position. If a phone
+  drops for 6s and three updates vanish, it does not matter. Do NOT build guaranteed delivery for these.
+- **Game events** (`event:*`, `phase:changed`, tag/conversion, `game:over`) = **must land.** The fix is
+  NOT per-packet delivery guarantees — it's the re-sync-on-reconnect above.
+
+**Config — tune for short, frequent drops:**
+```js
+// server
+const io = new Server(httpServer, {
+  connectionStateRecovery: { maxDisconnectionDuration: 2 * 60 * 1000 }
+});
+// client
+const socket = io(URL, {
+  reconnection: true,
+  reconnectionDelay: 500,      // retry fast — drops are short
+  reconnectionDelayMax: 3000,
+  timeout: 8000
+});
+socket.on("connect", () => socket.emit("resync", { playerId }));
+```
+
+**Surface disconnects, don't just fight them.** Use `disconnect`/`connect` + a "last seen" timestamp so
+the referee view can grey out a player whose phone went quiet — useful game info, not just an error state.
+
+**Rooms map onto teams:** `io.to(teamId).emit(...)`. This is a reason to stay on Socket.IO over alternatives.
+
+**Considered alternative — SSE + HTTP POST:** POST each position as a stateless request (nothing persistent
+to drop) + Server-Sent Events downstream (native auto-reconnect w/ `Last-Event-ID` replay). Arguably even
+more tolerant of flaky mobile, but two channels instead of one and no clean rooms concept. Reach for this
+ONLY if Socket.IO reconnection becomes a genuine headache. Hosted realtime (Ably/Pusher/Supabase) is
+overkill for a one-night free game.
+
+---
+
+## Game state machine
+
+1. **Lobby** — players join w/ name, assigned to teams. Host sets boundary (center pin + radius),
+   hide-timer, seek-timer. Everyone taps "Ready" → this also unlocks audio + requests wake lock.
+2. **Hide phase** — countdown; hiders get inside boundary & hide; seekers frozen at base. Boundary check active.
+3. **Seek phase** — seekers roam. Physical catch → someone taps to tag → that player/team converts to seekers.
+4. **Curveballs** (host-triggered or timed):
+   - `sound` — hider phones play a tone (audible reveal)
+   - `torch` — lights-on prompt (auto on Android)
+   - `shrink` — boundary radius drops, forcing relocation
+5. **Win** — last un-caught hider team standing.
+
+### Boundary logic
+Server computes each team's centroid (average lat/lng of its players), Haversine-distances it from
+the boundary center. Outside radius during seek phase → `boundary:warning`; after a grace period,
+a penalty (auto-reveal or forced tag).
+
+---
+
+## Build plan (3 days)
+
+- **Wed — plumbing:** scaffold client + server, join/lobby, stream geolocation, moving dots on referee map.
+  Success = dots move on a map when you walk around outside.
+- **Thu — the game:** phases + timers, centroid + boundary check, manual tagging, role conversion, win condition.
+  Playable end-to-end even if ugly.
+- **Fri AM — curveballs + polish + FIELD TEST:** sound event, torch prompt (auto Android), shrink-zone,
+  wake lock, audio unlock. Then go outside and test in daylight before dark.
+
+> **STATUS: all three days' scope is IMPLEMENTED** — see "Implementation status" at the
+> bottom of this file for what exists, where, and the deltas from this plan.
+
+### MVP cut line (if short on time)
+Lobby + roles + timers + manual tag + boundary check + **host-triggered** events.
+Cut auto-torch and the fancy map first. Build the **manual referee panel early** — a host who can
+manually fire every event and mark every tag means the game runs even if all automation flakes.
+That panel is the safety net.
+
+---
+
+## Suggested repo layout
+```
+lampas/
+├── CLAUDE.md            # this file
+├── server/
+│   ├── index.js         # express + socket.io, serves client build
+│   ├── game.js          # state machine, in-memory store
+│   └── geo.js           # haversine, centroid, boundary checks
+├── client/
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── screens/     # Lobby, HiderView, SeekerView, RefereeView
+│   │   ├── lib/socket.js
+│   │   └── lib/geo.js   # watchPosition wrapper, wake lock, audio unlock, torch
+│   └── ...
+└── package.json
+```
+
+---
+
+## Implementation status (2026-07-07)
+
+The full build plan is implemented and verified. Everything below is the ground truth of
+the code as it exists — keep this section updated when the code changes.
+
+### What exists
+
+| Area | File(s) | Notes |
+|---|---|---|
+| Server entry | `server/index.js` | Express + Socket.IO, serves `client/dist`, SPA fallback, `/healthz`, 2s tick loop, `connectionStateRecovery` (2 min) |
+| State machine | `server/game.js` | `Game` class, transport-agnostic (emits via callback), phases `lobby→hide→seek→over`, curveballs, forced tag on grace expiry, win check |
+| Geometry | `server/geo.js` | Pure: `haversine`, `centroid`, `insideBoundary` (10m GPS margin), `distanceOutside` |
+| Unit tests | `server/geo.test.js`, `server/game.test.js` | `npm test` (node:test), 20 tests: geometry, host assignment, team reuse, tag/convert, win, timers, boundary grace, privacy of positions, reset |
+| Client root | `client/src/App.jsx` | Thin: mounts `GameProvider`, routes by role, renders overlays |
+| Game context | `client/src/context/GameContext.jsx` | Owns socket subscription, state mirror, creds, position streaming, overlays/toasts. Consumed via `useGame()` / `useToast()` hooks — screens take NO game props |
+| Screens | `client/src/screens/` | `JoinScreen`, `Lobby`, `HiderView`, `SeekerView`, `HostView` (tabs: 👑 Referee / 🔦 Play), `RefereeView` (rendered inside HostView) |
+| Components | `client/src/components/` | `Countdown` (server-clock corrected), `Toast`, `TorchOverlay` (full-screen white flash), `RefereeMap` (Leaflet, plain JS — NOT react-leaflet) |
+| Device APIs | `client/src/lib/geo.js` | `startPositionStream` (3s throttle), `getCurrentPosition`, `requestWakeLock` (re-acquires on visibility), `unlockAudio`, `playRevealTone`, `vibrate`, `enableTorch`/`disableTorch` |
+| Socket client | `client/src/lib/socket.js` | Single shared socket, `resync` on every connect AND on tab-visible. Persistence: playerId (`lampas.playerId`) + name/team creds (`lampas.creds`) in `localStorage` |
+
+### Deltas / decisions made during implementation
+
+- **Extra socket events beyond the original spec list** (all documented in README):
+  `team:join`, `player:ready`, `host:config` (boundary + settings), `host:setTeamRole`,
+  `host:reset`, and server→client `team:converted`. The original list had no channel for
+  lobby configuration; `host:config` fills that.
+- **Host = referee = first player to join** (`isHost` on the player record). Host gets
+  `HostView` — a two-tab screen (👑 Referee panel / 🔦 Play = their own hider/seeker
+  screen) so the host also plays on a team. Host-only socket handlers verify `isHost`
+  server-side.
+- **Frontend state via context hooks, not prop drilling**: `GameProvider` (in
+  `context/GameContext.jsx`) is the single owner of socket + game state; screens call
+  `useGame()` / `useToast()`. Only leaf components (`Countdown`, `TeamList`, `Toast`)
+  still take props, deliberately — they're per-instance.
+- **Creds persist locally for reconnect**: `lampas.playerId` survives socket drops
+  (server keeps the player record); `lampas.creds` (name + team) survives SERVER
+  restarts — on `unknownPlayer` the client silently re-joins with stored creds
+  (one attempt per server life, guarded by a ref), and the Join form is prefilled
+  as fallback.
+- **Teams are created on demand by name** (case-insensitive match) at join time; players
+  can switch with `team:join` in the lobby. Host toggles which team(s) start as seekers.
+- **Rooms**: player id, team id, and `'referees'` — referee room gets the full state
+  (with positions) on every tick; players get role-scoped state with NO positions ever
+  (verified by unit test).
+- **Overlays derive from authoritative state**, not event packets: `game:state` carries
+  `activeEvent`, so a phone that reconnects mid-torch still shows/clears the flash
+  correctly. `event:torch` packet is only the fast path (vibrate + Android auto-torch).
+- **Sound curveball**: only HIDER phones play the siren (it's an audible reveal of
+  hiders); everyone vibrates. Tone is a square-wave 880/660 Hz alternation via WebAudio.
+- **Seek-timer expiry = surviving hiders win** (`reason: 'time'` on `game:over`).
+- **Boundary grace penalty = forced tag** of the whole offending team (not auto-reveal);
+  warning fires in both hide and seek phases, penalty only in seek.
+- **Countdown drift handling**: every `game:state` carries `serverNow`; the client
+  computes `endsAt - (localNow + offset)` so wrong phone clocks don't skew timers.
+- **Tailwind v4** (`@tailwindcss/vite` plugin, `@theme` tokens in `index.css` — there is
+  no `tailwind.config.js`, that's v4-normal). Custom colors: `night`, `panel`, `lamp`.
+- **Leaflet used directly** (no react-leaflet — avoids React-version coupling). OSM tiles
+  dark-filtered via CSS for night use.
+- **Mobile-first responsive**: single column `max-w-lg` on phones; `RefereeView` goes
+  two-column (sticky map + controls) at `lg:`. `min-h-dvh`, safe-area padding,
+  `viewport-fit=cover`, no user scaling, big touch targets, `active:scale-95` feedback.
+- **Dev workflow**: Vite on :5173 proxies `/socket.io` (ws) to the Node server on :3000,
+  so the client is always same-origin. Prod: Node serves `client/dist` itself.
+
+### Commands
+
+```bash
+npm install      # root deps; postinstall also installs client deps
+npm test         # unit tests (server/geo + server/game)
+npm run build    # vite build → client/dist
+npm start        # production: node server/index.js (reads PORT)
+npm run dev      # dev server :3000
+npm run dev:client  # vite :5173 (run alongside dev)
+```
+
+### Verified
+
+- `npm test`: 20/20 pass.
+- `vite build`: clean (~110 kB gzip JS).
+- Scripted end-to-end socket smoke test (3 clients): host assignment, config, team
+  roles, hide→seek auto-advance, out-of-bounds warning → forced tag after grace, win +
+  winner name, reset to lobby restores roles, resync returns correct identity, and
+  players' `game:state` contains no `positions` field while the referee's does.
+
+### Not implemented (deliberately)
+
+- No database, no auth, no multiple concurrent games (one Game per process — by design).
+- No polygon boundaries, no beam detection, no sub-10m mechanics (platform constraints).
+- No SSE fallback (documented alternative; reach for it only if Socket.IO reconnection
+  becomes a real problem in the field).

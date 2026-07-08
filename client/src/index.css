@@ -1,0 +1,82 @@
+@import 'tailwindcss';
+@import 'leaflet/dist/leaflet.css';
+
+/* Night-game theme: near-black background, warm lamp accent. */
+@theme {
+  --color-night: #0a0a0f;
+  --color-panel: #16161f;
+  --color-lamp: #fbbf24; /* amber-400 — the torch glow */
+  --color-lamp-dim: #92700c;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-night);
+  color: #e5e7eb;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  /* keep content clear of notches / home indicators */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Leaflet needs an explicit height; dark-filter the tiles for night mode */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: #111;
+}
+.leaflet-tile {
+  filter: brightness(0.7) contrast(1.1) saturate(0.6);
+}
+
+/* Full-screen torch flash — max brightness so the SCREEN acts as a lamp on iOS */
+.torch-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #fff;
+  color: #111;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  animation: torch-pulse 1s ease-in-out infinite;
+}
+@keyframes torch-pulse {
+  0%,
+  100% {
+    background: #fff;
+  }
+  50% {
+    background: #fef3c7;
+  }
+}
+
+@keyframes lamp-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 0.85;
+  }
+  55% {
+    opacity: 0.95;
+  }
+}
+.lamp-flicker {
+  animation: lamp-flicker 3s ease-in-out infinite;
+}
