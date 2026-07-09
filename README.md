@@ -29,7 +29,8 @@ One URL, nothing to coordinate, no database — state lives in memory for one ni
    them manually — seekers can't tag) — the caught player's **whole team converts
    to seekers**.
 4. **Curveballs** (host-triggered):
-   - 🔊 **Sound** — every hider phone plays a loud siren (audible reveal)
+   - 🔊 **Sound** — every hider phone plays a looped reveal sound (audible reveal;
+     clip at `client/public/sounds/reveal.mp3`, swap the file to change it)
    - 🔦 **Torch** — full-screen white "LIGHTS ON" flash on every phone
      (plus real camera torch on Android Chrome)
    - ⭕ **Shrink** — boundary radius drops, forcing hiders to relocate
@@ -174,6 +175,7 @@ phone: watchPosition (throttled ~3s)
 | `host:reset` | — | Host only: back to lobby |
 | `host:kick` | `{targetPlayerId}` | Host only, lobby only: remove a player (not a ban — they can re-join). Kicked phone gets a `kicked` event and resets to the join screen |
 | `leave` | — | Voluntary logout (lobby only removes the record; mid-game it just greys out). Client also wipes stored playerId + creds |
+| `host:deleteTeam` | `{teamId}` | Host only, lobby only: delete a team and kick all its members (they get `kicked` with `reason: 'team-deleted'`) |
 
 **Server → client**
 
@@ -204,8 +206,8 @@ lampas/
         ├── App.jsx        # thin: provider + role router + overlays (+ ?dev gate)
         ├── context/       # GameContext — useGame()/useToast() hooks own all state
         ├── dev/           # ?dev view: DevApp (controls) + engine (mock game)
-        ├── screens/       # JoinScreen, Lobby, HiderView, SeekerView,
-        │                  #   HostView (tabs: Referee / Play), RefereeView
+        ├── screens/       # JoinScreen (+/host login), Lobby, HiderView,
+        │                  #   SeekerView, HostView, RefereeView
         ├── components/    # Countdown, Toast, TorchOverlay, RefereeMap (Leaflet)
         └── lib/
             ├── socket.js  # shared client socket, resync-on-connect, stored creds
@@ -227,6 +229,12 @@ lampas/
    event and tag every player — it's the safety net if any automation flakes.
 
 ## Troubleshooting
+
+- **"Why did the game end?" / any dispute** — check the **Game log** panel at the
+  bottom of the referee screen: every join, kick, phase change, boundary warning,
+  tag (with who/what triggered it — self, referee, or boundary penalty), curveball,
+  and game-over lands there with a timestamp. The same lines go to the server
+  console (visible in Render's Logs tab). The log survives "back to lobby".
 
 - **"GPS unavailable" toast** — the phone denied location permission, or the page
   isn't HTTPS. Check the browser's site permissions.

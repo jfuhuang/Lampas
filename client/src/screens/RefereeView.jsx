@@ -91,8 +91,37 @@ export default function RefereeView() {
         )}
 
         <PlayerRoster game={game} />
+        <GameLog log={game.log} />
       </div>
     </div>
+  );
+}
+
+/** Referee-only event log — the debugging window into why the game did X. */
+function GameLog({ log }) {
+  if (!log?.length) return null;
+  const colors = {
+    over: 'text-red-300',
+    tag: 'text-amber-300',
+    boundary: 'text-sky-300',
+    phase: 'text-emerald-300',
+    event: 'text-fuchsia-300',
+  };
+  return (
+    <Section title="Game log (newest first)">
+      <ul className="max-h-56 overflow-y-auto font-mono text-[11px] leading-relaxed">
+        {[...log].reverse().map((entry, i) => (
+          <li key={`${entry.at}-${i}`} className="flex gap-2">
+            <span className="shrink-0 text-neutral-600">
+              {new Date(entry.at).toLocaleTimeString([], { hour12: false })}
+            </span>
+            <span className={colors[entry.type] ?? 'text-neutral-400'}>
+              [{entry.type}] {entry.msg}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 
@@ -278,17 +307,39 @@ function LiveControls({ game, boundary }) {
 
 function PlayerRoster({ game }) {
   const toast = useToast();
-  // Kicking is lobby-only (server enforces too) — mid-game, force-tag instead.
-  const onKick =
-    game.phase === 'lobby'
-      ? (p) => {
-          socket.emit('host:kick', { targetPlayerId: p.id });
-          toast(`Kicked ${p.name} — they can re-join anytime`, 'info');
+  const [armedTeamId, setArmedTeamId] = useState(null); // 2-tap team delete
+  const inLobby = game.phase === 'lobby';
+
+  // Kicking/deleting is lobby-only (server enforces too) — mid-game, force-tag instead.
+  const onKick = inLobby
+    ? (p) => {
+        socket.emit('host:kick', { targetPlayerId: p.id });
+        toast(`Kicked ${p.name} — they can re-join anytime`, 'info');
+      }
+    : undefined;
+
+  // Deleting removes the team AND kicks all its members — arm on first tap.
+  const onDeleteTeam = inLobby
+    ? (t) => {
+        if (armedTeamId !== t.id) {
+          setArmedTeamId(t.id);
+          toast(`Tap 🗑 on ${t.name} again to delete the team + kick its players`, 'warn');
+          return;
         }
-      : undefined;
+        setArmedTeamId(null);
+        socket.emit('host:deleteTeam', { teamId: t.id });
+        toast(`Deleted team ${t.name}`, 'info');
+      }
+    : undefined;
+
   return (
     <Section title={`Players (${game.teams.reduce((n, t) => n + t.players.length, 0)})`}>
-      <TeamList teams={game.teams} youId={game.you?.id} onKick={onKick} />
+      <TeamList
+        teams={game.teams}
+        youId={game.you?.id}
+        onKick={onKick}
+        onDeleteTeam={onDeleteTeam}
+      />
     </Section>
   );
 }

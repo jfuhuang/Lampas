@@ -192,12 +192,12 @@ the code as it exists — keep this section updated when the code changes.
 | Server entry | `server/index.js` | Express + Socket.IO, serves `client/dist`, SPA fallback, `/healthz`, 2s tick loop, `connectionStateRecovery` (2 min) |
 | State machine | `server/game.js` | `Game` class, transport-agnostic (emits via callback), phases `lobby→hide→seek→over`, curveballs, forced tag on grace expiry, win check |
 | Geometry | `server/geo.js` | Pure: `haversine`, `centroid`, `insideBoundary` (10m GPS margin), `distanceOutside` |
-| Unit tests | `server/geo.test.js`, `server/game.test.js` | `npm test` (node:test), 20 tests: geometry, host assignment, team reuse, tag/convert, win, timers, boundary grace, privacy of positions, reset |
+| Unit tests | `server/geo.test.js`, `server/game.test.js` | `npm test` (node:test), 29 tests: geometry, credential-based host, team reuse, tag/convert, win rules (one-left / single-team / phantom teams), timers, boundary grace, privacy of positions, referee `you`, kick, reset |
 | Client root | `client/src/App.jsx` | Thin: mounts `GameProvider`, routes by role, renders overlays |
 | Game context | `client/src/context/GameContext.jsx` | Owns socket subscription, state mirror, creds, position streaming, overlays/toasts. Consumed via `useGame()` / `useToast()` hooks — screens take NO game props |
-| Screens | `client/src/screens/` | `JoinScreen`, `Lobby`, `HiderView`, `SeekerView`, `HostView` (tabs: 👑 Referee / 🔦 Play), `RefereeView` (rendered inside HostView) |
+| Screens | `client/src/screens/` | `JoinScreen` (doubles as `/host` password login), `Lobby`, `HiderView` ("I'm caught" + collapsed boundary map), `SeekerView` (read-only hunt list + boundary map), `HostView` (plain referee for teamless hosts; 👑/🔦 tabs only if host has a team), `RefereeView` |
 | Components | `client/src/components/` | `Countdown` (server-clock corrected), `Toast`, `TorchOverlay` (full-screen white flash), `RefereeMap` (Leaflet, plain JS — NOT react-leaflet), `PlayerMap` (boundary circle + OWN dot only, collapsible; collapsed by default for hiders — lit screen betrays the hiding spot; own position is the local GPS echo `myPos` from GameContext, other players' positions never reach player clients) |
-| Device APIs | `client/src/lib/geo.js` | `startPositionStream` (3s throttle), `getCurrentPosition`, `requestWakeLock` (re-acquires on visibility), `unlockAudio`, `playRevealTone`, `vibrate`, `enableTorch`/`disableTorch` |
+| Device APIs | `client/src/lib/geo.js` | `startPositionStream` (3s throttle), `getCurrentPosition`, `requestWakeLock` (re-acquires on visibility), `unlockAudio`, `playRevealTone` (loops `public/sounds/reveal.mp3`), `vibrate`, `enableTorch`/`disableTorch`. Also exports `DEFAULT_CENTER`/`DEFAULT_ZOOM` (Snow Mountain Ranch) |
 | Socket client | `client/src/lib/socket.js` | Single shared socket, `resync` on every connect AND on tab-visible. Persistence: playerId (`lampas.playerId`) + name/team creds (`lampas.creds`) in `localStorage`. Exposes `setEmitInterceptor()` for the dev view. Server URL from `VITE_SERVER_URL` (build-time, split deploys e.g. Vercel client + remote server — see `client/.env.example`); unset = same-origin monolith |
 | Dev view | `client/src/dev/DevApp.jsx`, `client/src/dev/engine.js` | `?dev` URL flag swaps the app for a mock-driven harness: real screens, screen + persona pickers, local engine mirroring server rules (tag/convert/win/timers/curveballs), bot drift on the map, sim pause/reset. `socket.emit` intercepted, real socket disconnected. Engine is a deliberate throwaway mimic — `server/game.js` stays the rules source of truth |
 
@@ -234,12 +234,33 @@ the code as it exists — keep this section updated when the code changes.
 - **Overlays derive from authoritative state**, not event packets: `game:state` carries
   `activeEvent`, so a phone that reconnects mid-torch still shows/clears the flash
   correctly. `event:torch` packet is only the fast path (vibrate + Android auto-torch).
-- **Sound curveball**: only HIDER phones play the siren (it's an audible reveal of
-  hiders); players vibrate. Tone is a square-wave 880/660 Hz alternation via WebAudio.
+- **Sound curveball**: only HIDER phones play it (audible reveal of hiders); players
+  vibrate. Sound is a looped audio clip — `client/public/sounds/reveal.mp3`, played
+  via HTMLAudio at 0.35 volume for the event duration (changed 2026-07-08 from the
+  original WebAudio square-wave siren; swap the mp3 to change the sound).
+  `unlockAudio()` (lobby Ready tap) is still required — it satisfies the mobile
+  autoplay gesture rule that also gates HTMLAudio playback.
+- **Game log + premature-end fixes** (2026-07-08): user reported games ending early.
+  Two root causes found and fixed: (1) `outsideSince` set during the HIDE phase rolled
+  into seek → grace already "expired" seconds into seek → instant boundary force-tag;
+  now cleared at seek start. (2) stale GPS from dropped phones (pos never expired)
+  dragged team centroids out of bounds; `teamCentroid()` now ignores positions older
+  than 60s. Diagnostics: `Game.logEvent()` ring buffer (200 entries, survives lobby
+  reset, mirrored to server console with ISO timestamps) records joins/kicks/team
+  changes/phase transitions (with hider-count + win-threshold on seek start)/boundary
+  warnings + clears + forced tags (with meters + source)/tags (with `[self]` /
+  `[referee (name)]` / `[boundary penalty]` and hiders-left ratio)/events/config/game
+  over (with reason). Last 60 entries ship in `refereeState().log`; RefereeView shows
+  a color-coded, newest-first "Game log" panel. Players never see the log.
 - **Log out** (2026-07-08): `logout()` in GameContext wipes `lampas.playerId` +
   `lampas.creds` and emits `leave` (server removes the record — lobby only, same rules
   as kick; mid-game the record stays and greys out). UI: "Log out" link in the Lobby,
   "Not you? Clear saved info" on the Join screen when creds exist.
+- **Host can delete teams** (2026-07-08): `host:deleteTeam` → `Game.removeTeam()` —
+  lobby-only, deletes the team AND its members (hosts spared), members get `kicked`
+  with `reason: 'team-deleted'` + a targeted toast. UI: 🗑 per team in the referee
+  roster, two-tap armed confirm (first tap warns, second deletes). Also cleans up
+  empty shell teams.
 - **Host can kick from the lobby** (2026-07-08): `host:kick` → `Game.removePlayer()`
   (lobby-only, host unkickable, not a ban). Kicked phone receives `kicked`, clears its
   stored playerId (blocks silent auto-rejoin) but keeps creds for one-tap re-join, and
@@ -293,12 +314,13 @@ npm run dev:client  # vite :5173 (run alongside dev)
 
 ### Verified
 
-- `npm test`: 20/20 pass.
-- `vite build`: clean (~110 kB gzip JS).
-- Scripted end-to-end socket smoke test (3 clients): host assignment, config, team
-  roles, hide→seek auto-advance, out-of-bounds warning → forced tag after grace, win +
-  winner name, reset to lobby restores roles, resync returns correct identity, and
-  players' `game:state` contains no `positions` field while the referee's does.
+- `npm test`: 29/29 pass.
+- `vite build`: clean (~115 kB gzip JS).
+- Scripted end-to-end socket smoke tests: credential host login (teamless), config,
+  team roles, hide→seek auto-advance, out-of-bounds warning → forced tag after grace,
+  win + winner name, reset restores roles, restart-recovery (stale playerId →
+  `unknownPlayer` → creds re-join → full state with `you` + `isHost`), and players'
+  `game:state` contains no `positions` field while the referee's does.
 
 ### Not implemented (deliberately)
 

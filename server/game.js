@@ -34,7 +34,17 @@ export class Game {
    */
   constructor(emit = () => {}) {
     this.emit = emit;
+    // Ring buffer of game events. Lives OUTSIDE reset() on purpose — it
+    // must survive "back to lobby" so premature endings stay debuggable.
+    this.log = [];
     this.reset();
+  }
+
+  /** Append to the game log (referee panel + server console). */
+  logEvent(type, msg) {
+    this.log.push({ at: Date.now(), type, msg });
+    if (this.log.length > 200) this.log.shift();
+    console.log(`[game] ${new Date().toISOString()} ${type}: ${msg}`);
   }
 
   reset() {
@@ -75,6 +85,11 @@ export class Game {
     // Host is decided by credentials (checked in index.js), never by join order.
     player.isHost = !!isHost;
     if (teamName) this.joinTeam(player.id, teamName);
+    this.logEvent(
+      'join',
+      `${player.name}${player.isHost ? ' (HOST)' : ''} joined` +
+        (player.teamId ? ` team ${this.teams.get(player.teamId)?.name}` : ''),
+    );
     return player;
   }
 
@@ -110,7 +125,26 @@ export class Game {
     const player = this.players.get(playerId);
     if (!player || player.isHost) return null; // hosts can't be kicked
     this.players.delete(playerId);
+    this.logEvent('kick', `${player.name} removed from lobby`);
     return player;
+  }
+
+  /**
+   * Host deletes a whole team (lobby only). Members are removed with it —
+   * they get kicked back to the join screen and can re-join under a new
+   * team. Returns { team, memberIds } or null.
+   */
+  removeTeam(teamId) {
+    if (this.phase !== 'lobby') return null;
+    const team = this.teams.get(teamId);
+    if (!team) return null;
+    const memberIds = [...this.players.values()]
+      .filter((p) => p.teamId === teamId && !p.isHost)
+      .map((p) => p.id);
+    for (const id of memberIds) this.players.delete(id);
+    this.teams.delete(teamId);
+    this.logEvent('team', `team ${team.name} deleted (${memberIds.length} member(s) kicked)`);
+    return { team, memberIds };
   }
 
   setReady(playerId, ready = true) {
@@ -122,7 +156,10 @@ export class Game {
   setTeamRole(teamId, role) {
     if (this.phase !== 'lobby') return;
     const team = this.teams.get(teamId);
-    if (team && (role === 'seeker' || role === 'hider')) team.role = role;
+    if (team && (role === 'seeker' || role === 'hider')) {
+      team.role = role;
+      this.logEvent('team', `team ${team.name} set to ${role}`);
+    }
   }
 
   /** Host: configure boundary and/or timers. Boundary is a circle, always. */
@@ -132,6 +169,7 @@ export class Game {
         center: { lat: +boundary.center.lat, lng: +boundary.center.lng },
         radiusM: Math.max(20, +boundary.radiusM),
       };
+      this.logEvent('config', `boundary set: r=${this.boundary.radiusM}m`);
     }
     if (settings) {
       for (const key of Object.keys(DEFAULT_SETTINGS)) {
@@ -166,9 +204,19 @@ export class Game {
       // Snapshot for the win rule: >1 hider team → end at 1 left; exactly
       // one hider team from the start → play until 0.
       this.initialHiderTeams = this.hiderTeams().length;
+      // Fresh grace clocks: time spent outside during the HIDE phase must
+      // not roll into the seek penalty (caused instant premature tags).
+      for (const p of this.players.values()) p.outsideSince = null;
     } else if (phase === 'over') {
       this.phaseEndsAt = null;
     }
+    this.logEvent(
+      'phase',
+      `→ ${phase}` +
+        (phase === 'seek'
+          ? ` (${this.initialHiderTeams} hider team(s), win at ${this.initialHiderTeams > 1 ? 1 : 0} left)`
+          : ''),
+    );
     this.emit('phase:changed', { phase: this.phase, phaseEndsAt: this.phaseEndsAt });
     this.broadcastState();
   }
@@ -189,10 +237,15 @@ export class Game {
     player.lastSeenAt = Date.now();
   }
 
-  /** Team centroid from members with a known position. */
-  teamCentroid(teamId) {
+  /**
+   * Team centroid from members with a FRESH position (≤60s old). Stale
+   * coords from dropped phones must not drag the centroid out of bounds —
+   * that caused phantom boundary tags and premature game endings.
+   */
+  teamCentroid(teamId, maxAgeMs = 60_000) {
+    const cutoff = Date.now() - maxAgeMs;
     const points = [...this.players.values()]
-      .filter((p) => p.teamId === teamId && p.pos)
+      .filter((p) => p.teamId === teamId && p.pos && p.pos.at >= cutoff)
       .map((p) => p.pos);
     return centroid(points);
   }
@@ -203,7 +256,7 @@ export class Game {
    * A hider is caught (seeker tapped "Tag" or hider tapped "I'm caught").
    * Converts the WHOLE team to seekers, then checks the win condition.
    */
-  tagPlayer(targetPlayerId, byPlayerId = null) {
+  tagPlayer(targetPlayerId, byPlayerId = null, source = null) {
     if (this.phase !== 'seek') return null;
     const target = this.players.get(targetPlayerId);
     if (!target || !target.teamId) return null;
@@ -212,6 +265,19 @@ export class Game {
 
     team.role = 'seeker';
     team.caughtAt = Date.now();
+    const by =
+      source ??
+      (byPlayerId === targetPlayerId
+        ? 'self'
+        : byPlayerId
+          ? `referee (${this.players.get(byPlayerId)?.name})`
+          : 'unknown');
+    const left = this.hiderTeams().length;
+    this.logEvent(
+      'tag',
+      `${target.name} caught [${by}] — team ${team.name} → seekers. ` +
+        `Hider teams left: ${left}/${this.initialHiderTeams}`,
+    );
     this.emit('team:converted', {
       teamId: team.id,
       teamName: team.name,
@@ -246,6 +312,11 @@ export class Game {
       this.winnerTeamId = hiders[0]?.id ?? null; // null = seekers caught everyone
       this.phase = 'over';
       this.phaseEndsAt = null;
+      this.logEvent(
+        'over',
+        `GAME OVER — ${hiders.length} hider team(s) left (end threshold ${endAt}). ` +
+          `Winner: ${this.winnerTeamId ? this.teams.get(this.winnerTeamId).name : 'seekers (all caught)'}`,
+      );
       this.emit('game:over', {
         winnerTeamId: this.winnerTeamId,
         winnerTeamName: this.winnerTeamId ? this.teams.get(this.winnerTeamId).name : null,
@@ -263,16 +334,19 @@ export class Game {
 
     if (type === 'shrink') {
       if (!this.boundary) return;
+      const oldR = this.boundary.radiusM;
       this.boundary.radiusM = Math.max(
         20,
         Math.round(this.boundary.radiusM * this.settings.shrinkFactor),
       );
+      this.logEvent('event', `SHRINK: radius ${oldR}m → ${this.boundary.radiusM}m`);
       this.emit('event:shrink', { boundary: this.boundary });
     } else {
       this.activeEvent = {
         type,
         endsAt: Date.now() + this.settings.eventSeconds * 1000,
       };
+      this.logEvent('event', `${type.toUpperCase()} fired (${this.settings.eventSeconds}s)`);
       this.emit(`event:${type}`, { endsAt: this.activeEvent.endsAt });
     }
     this.broadcastState();
@@ -297,6 +371,11 @@ export class Game {
         this.winnerTeamId = hiders[0]?.id ?? null;
         this.phase = 'over';
         this.phaseEndsAt = null;
+        this.logEvent(
+          'over',
+          `GAME OVER — seek timer expired, ${hiders.length} hider team(s) survived. ` +
+            `Winner: ${this.winnerTeamId ? this.teams.get(this.winnerTeamId).name : 'seekers'}`,
+        );
         this.emit('game:over', {
           winnerTeamId: this.winnerTeamId,
           winnerTeamName: this.winnerTeamId ? this.teams.get(this.winnerTeamId).name : null,
@@ -315,12 +394,20 @@ export class Game {
         const inside = insideBoundary(c, this.boundary, this.settings.boundaryMarginM);
         const members = [...this.players.values()].filter((p) => p.teamId === team.id);
         if (inside) {
+          if (members.some((m) => m.outsideSince)) {
+            this.logEvent('boundary', `team ${team.name} back inside — grace cleared`);
+          }
           for (const m of members) m.outsideSince = null;
           continue;
         }
         const firstOut = members.find((m) => m.outsideSince)?.outsideSince ?? null;
         if (!firstOut) {
           for (const m of members) m.outsideSince = now;
+          this.logEvent(
+            'boundary',
+            `team ${team.name} OUTSIDE (${Math.round(distanceOutside(c, this.boundary))}m past) — ` +
+              `grace ${this.settings.graceSeconds}s started`,
+          );
           this.emit(
             'boundary:warning',
             {
@@ -337,8 +424,12 @@ export class Game {
           );
         } else if (this.phase === 'seek' && now - firstOut >= this.settings.graceSeconds * 1000) {
           // Grace expired → forced tag (whole team converts)
+          this.logEvent(
+            'boundary',
+            `team ${team.name} grace expired (${Math.round((now - firstOut) / 1000)}s outside) → forced tag`,
+          );
           const anyMember = members[0];
-          if (anyMember) this.tagPlayer(anyMember.id, null);
+          if (anyMember) this.tagPlayer(anyMember.id, null, 'boundary penalty');
         }
       }
     }
@@ -402,6 +493,8 @@ export class Game {
         teamId: id,
         centroid: this.teamCentroid(id),
       })),
+      // Referee-only game log (newest last); client renders it reversed.
+      log: this.log.slice(-60),
     };
   }
 

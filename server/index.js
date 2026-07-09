@@ -188,6 +188,16 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('host:deleteTeam', ({ teamId } = {}) => {
+    if (!isHost()) return;
+    const result = game.removeTeam(teamId);
+    if (!result) return;
+    for (const memberId of result.memberIds) {
+      io.to(memberId).emit('kicked', { reason: 'team-deleted', teamName: result.team.name });
+    }
+    game.broadcastState();
+  });
+
   socket.on('host:kick', ({ targetPlayerId } = {}) => {
     if (!isHost()) return;
     const removed = game.removePlayer(targetPlayerId);

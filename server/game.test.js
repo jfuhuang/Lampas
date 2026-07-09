@@ -160,6 +160,51 @@ test('returning inside boundary clears the grace clock', () => {
   assert.equal(game.teams.get(h1.teamId).role, 'hider');
 });
 
+test('hide-phase grace time does NOT roll into seek (no instant tag)', () => {
+  const { game } = makeGame();
+  const { h1 } = setupTwoTeams(game);
+  game.configure({
+    boundary: { center: { lat: 51.5, lng: -0.12 }, radiusM: 100 },
+    settings: { graceSeconds: 30, hideSeconds: 60 },
+  });
+  game.startPhase('hide');
+  game.updatePosition(h1.id, { lat: 51.51, lng: -0.12 }); // way outside
+  const t0 = Date.now();
+  game.tick(t0); // warning during hide, outsideSince set
+  game.startPhase('seek');
+  game.tick(t0 + 40_000); // 40s later — would exceed grace if it carried over
+  assert.equal(
+    game.teams.get(h1.teamId).role,
+    'hider',
+    'grace clock must restart at seek start',
+  );
+});
+
+test('stale positions (>60s) are excluded from the team centroid', () => {
+  const { game } = makeGame();
+  const { h1 } = setupTwoTeams(game);
+  game.configure({ boundary: { center: { lat: 51.5, lng: -0.12 }, radiusM: 100 } });
+  game.startPhase('seek');
+  game.updatePosition(h1.id, { lat: 51.51, lng: -0.12 }); // outside
+  game.players.get(h1.id).pos.at = Date.now() - 61_000; // phone went quiet
+  assert.equal(game.teamCentroid(h1.teamId), null, 'stale-only team has no centroid');
+  game.tick(Date.now());
+  assert.equal(game.players.get(h1.id).outsideSince, null, 'no phantom boundary flag');
+});
+
+test('game log records tags and game over with context', () => {
+  const { game } = makeGame();
+  const { h1 } = setupTwoTeams(game);
+  game.startPhase('seek');
+  game.tagPlayer(h1.id, h1.id); // self-report
+  const tagLine = game.log.find((e) => e.type === 'tag');
+  assert.ok(tagLine.msg.includes('[self]'), tagLine.msg);
+  assert.ok(tagLine.msg.includes('Hider teams left: 1/2'), tagLine.msg);
+  const overLine = game.log.find((e) => e.type === 'over');
+  assert.ok(overLine.msg.includes('Winner: Foxes'), overLine.msg);
+  assert.ok(game.refereeState().log.length > 0);
+});
+
 test('playerState never contains positions; refereeState does', () => {
   const { game } = makeGame();
   const { host, h1 } = setupTwoTeams(game);
@@ -193,6 +238,24 @@ test('kick: lobby-only, never the host, player fully removed', () => {
   const h2 = game.addPlayer({ name: 'Zed', teamName: 'Owls' });
   game.startPhase('seek');
   assert.equal(game.removePlayer(h2.id), null);
+});
+
+test('deleteTeam: lobby-only, removes team + members, spares host', () => {
+  const { game } = makeGame();
+  const { host, h1 } = setupTwoTeams(game);
+  // Host parked on a team here (engine allows it) — deleting it must not delete the host.
+  const hostTeamId = host.teamId;
+  const r1 = game.removeTeam(hostTeamId);
+  assert.equal(r1.memberIds.length, 0, 'host not counted as removable member');
+  assert.equal(game.players.has(host.id), true);
+  assert.equal(game.teams.has(hostTeamId), false);
+  // Normal team: members go with it
+  const r2 = game.removeTeam(h1.teamId);
+  assert.deepEqual(r2.memberIds, [h1.id]);
+  assert.equal(game.players.has(h1.id), false);
+  // Mid-game refused
+  game.startPhase('seek');
+  assert.equal(game.removeTeam([...game.teams.keys()][0]), null);
 });
 
 test('reset to lobby restores caught teams to hiders', () => {

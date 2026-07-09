@@ -141,13 +141,18 @@ export function GameProvider({ children }) {
       );
     };
     const onShrink = () => showToast('THE ZONE IS SHRINKING — check the boundary!', 'warn');
-    const onKicked = () => {
+    const onKicked = ({ reason, teamName } = {}) => {
       // Drop the stored playerId so we don't silently auto-rejoin; creds
       // stay so re-joining (it's not a ban) is one tap.
       clearPlayerId();
       setJoined(false);
       setGame(null);
-      showToast('The host removed you from the lobby', 'alert');
+      showToast(
+        reason === 'team-deleted'
+          ? `The host deleted team ${teamName ?? ''} — re-join under a new team`
+          : 'The host removed you from the lobby',
+        'alert',
+      );
     };
     const onConnect = () => setConnected(true);
     const onDisconnect = () => {

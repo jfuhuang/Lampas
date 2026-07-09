@@ -52,20 +52,34 @@ export default function Lobby() {
   );
 }
 
-/** `onKick(player)` (host lobby only) adds a ✕ button per player. */
-export function TeamList({ teams, youId, onKick }) {
+/**
+ * `onKick(player)` / `onDeleteTeam(team)` (host lobby only) add ✕ per
+ * player and a 🗑 per team.
+ */
+export function TeamList({ teams, youId, onKick, onDeleteTeam }) {
   return (
     <div className="flex flex-col gap-3">
       {teams.map((team) => (
         <div key={team.id} className="rounded-xl border border-neutral-800 bg-panel p-3">
           <div className="flex items-center justify-between">
             <span className="font-bold">{team.name}</span>
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-bold uppercase ${
-                team.role === 'seeker' ? 'bg-red-900 text-red-200' : 'bg-emerald-900 text-emerald-200'
-              }`}
-            >
-              {team.role}
+            <span className="flex items-center gap-2">
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-bold uppercase ${
+                  team.role === 'seeker' ? 'bg-red-900 text-red-200' : 'bg-emerald-900 text-emerald-200'
+                }`}
+              >
+                {team.role}
+              </span>
+              {onDeleteTeam && (
+                <button
+                  onClick={() => onDeleteTeam(team)}
+                  aria-label={`Delete team ${team.name}`}
+                  className="rounded px-1.5 py-0.5 text-sm active:scale-90"
+                >
+                  🗑
+                </button>
+              )}
             </span>
           </div>
           <ul className="mt-2 flex flex-wrap gap-2">
