@@ -6,6 +6,7 @@ import SeekerView from './screens/SeekerView.jsx';
 import HostView from './screens/HostView.jsx';
 import TorchOverlay from './components/TorchOverlay.jsx';
 import Toast from './components/Toast.jsx';
+import HiderTeamsBadge from './components/HiderTeamsBadge.jsx';
 import DevApp from './dev/DevApp.jsx';
 
 // `?dev` swaps the whole app for the mock-driven dev view (dev/DevApp.jsx):
@@ -42,6 +43,7 @@ function Overlays() {
   const { torchActive, toast, dismissToast } = useGame();
   return (
     <>
+      <HiderTeamsBadge />
       {torchActive && <TorchOverlay />}
       {toast && <Toast key={toast.at} {...toast} onDone={dismissToast} />}
     </>

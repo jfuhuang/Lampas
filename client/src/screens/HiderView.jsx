@@ -41,7 +41,7 @@ export default function HiderView() {
       </div>
 
       {/* Collapsed by default — a lit screen gives away a hiding spot. */}
-      <PlayerMap boundary={game.boundary} myPos={myPos} collapsedByDefault />
+      <PlayerMap boundary={game.boundary} myPos={myPos} others={game.positions} collapsedByDefault />
 
       <div className="mt-auto flex flex-col gap-2">
         {confirming ? (

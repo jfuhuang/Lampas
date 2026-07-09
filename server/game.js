@@ -12,7 +12,7 @@
 import { haversine, centroid, insideBoundary, distanceOutside } from './geo.js';
 
 export const PHASES = ['lobby', 'hide', 'seek', 'over'];
-export const EVENT_TYPES = ['sound', 'torch', 'shrink'];
+export const EVENT_TYPES = ['sound', 'torch', 'shrink', 'reveal'];
 
 const DEFAULT_SETTINGS = {
   hideSeconds: 180, // hiders get 3 min to hide
@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS = {
   graceSeconds: 30, // time allowed outside boundary before penalty
   shrinkFactor: 0.6, // boundary radius multiplier per shrink event
   eventSeconds: 15, // how long sound/torch events stay active
+  revealSeconds: 20, // how long the all-positions reveal lasts
   boundaryMarginM: 10, // GPS-noise margin added to the radius
 };
 
@@ -342,11 +343,13 @@ export class Game {
       this.logEvent('event', `SHRINK: radius ${oldR}m → ${this.boundary.radiusM}m`);
       this.emit('event:shrink', { boundary: this.boundary });
     } else {
+      const seconds =
+        type === 'reveal' ? this.settings.revealSeconds : this.settings.eventSeconds;
       this.activeEvent = {
         type,
-        endsAt: Date.now() + this.settings.eventSeconds * 1000,
+        endsAt: Date.now() + seconds * 1000,
       };
-      this.logEvent('event', `${type.toUpperCase()} fired (${this.settings.eventSeconds}s)`);
+      this.logEvent('event', `${type.toUpperCase()} fired (${seconds}s)`);
       this.emit(`event:${type}`, { endsAt: this.activeEvent.endsAt });
     }
     this.broadcastState();
@@ -473,22 +476,27 @@ export class Game {
    * routes on `game.you`, so a you-less state would bounce the host
    * back to the join screen.
    */
+  /** All live positions, serialized. Referee always; players ONLY during reveal. */
+  positionsPayload() {
+    return [...this.players.values()]
+      .filter((p) => p.pos)
+      .map((p) => ({
+        playerId: p.id,
+        name: p.name,
+        teamId: p.teamId,
+        role: this.teams.get(p.teamId)?.role ?? 'host', // teamless = the referee
+        lat: p.pos.lat,
+        lng: p.pos.lng,
+        at: p.pos.at,
+        connected: p.connected,
+        lastSeenAt: p.lastSeenAt,
+      }));
+  }
+
   refereeState(playerId = null) {
     return {
       ...(playerId ? this.playerState(playerId) : this.baseState()),
-      positions: [...this.players.values()]
-        .filter((p) => p.pos)
-        .map((p) => ({
-          playerId: p.id,
-          name: p.name,
-          teamId: p.teamId,
-          role: this.teams.get(p.teamId)?.role ?? 'host', // teamless = the referee
-          lat: p.pos.lat,
-          lng: p.pos.lng,
-          at: p.pos.at,
-          connected: p.connected,
-          lastSeenAt: p.lastSeenAt,
-        })),
+      positions: this.positionsPayload(),
       teamCentroids: [...this.teams.keys()].map((id) => ({
         teamId: id,
         centroid: this.teamCentroid(id),
@@ -498,12 +506,18 @@ export class Game {
     };
   }
 
-  /** Role-appropriate view for a player: no live positions of anyone. */
+  /**
+   * Role-appropriate view for a player: NO live positions of anyone —
+   * EXCEPT while a `reveal` curveball is active, when everyone (seekers
+   * AND hiders) sees all dots. That's the one sanctioned privacy breach.
+   */
   playerState(playerId) {
     const player = this.players.get(playerId);
     const team = player?.teamId ? this.teams.get(player.teamId) : null;
+    const revealed = this.activeEvent?.type === 'reveal';
     return {
       ...this.baseState(),
+      ...(revealed ? { positions: this.positionsPayload() } : {}),
       you: player
         ? {
             id: player.id,

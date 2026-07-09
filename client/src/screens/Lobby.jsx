@@ -1,5 +1,5 @@
 import { socket } from '../lib/socket.js';
-import { unlockAudio, requestWakeLock } from '../lib/geo.js';
+import { unlockAudio, requestWakeLock, prewarmTorch } from '../lib/geo.js';
 import { useGame } from '../context/GameContext.jsx';
 
 /**
@@ -11,7 +11,10 @@ export default function Lobby() {
   const { game, you, logout } = useGame();
 
   const handleReady = async () => {
+    // One tap unlocks every gesture-gated API: audio, wake lock, and the
+    // camera permission for the Android torch (prompt now, not mid-event).
     unlockAudio();
+    prewarmTorch(); // fire-and-forget; Android shows its prompt here
     await requestWakeLock();
     socket.emit('player:ready', { ready: !you.ready });
   };

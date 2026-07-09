@@ -11,6 +11,7 @@ import HostView from '../screens/HostView.jsx';
 import RefereeView from '../screens/RefereeView.jsx';
 import TorchOverlay from '../components/TorchOverlay.jsx';
 import Toast from '../components/Toast.jsx';
+import HiderTeamsBadge from '../components/HiderTeamsBadge.jsx';
 
 /**
  * Dev view — open the app with `?dev` in the URL (e.g. localhost:5173/?dev).
@@ -104,6 +105,8 @@ export default function DevApp() {
         <div className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 pb-6 lg:max-w-6xl">
           <ScreenFor key={`${screen}-${state.youId}`} screen={screen} game={game} />
         </div>
+        {/* Below the dev bar (which is ~fixed at the top and z-40) */}
+        <HiderTeamsBadge position="right-3 top-32" />
         {/* Host persona is exempt from the flash, same as production */}
         {torchActive && !game.you?.isHost && <TorchOverlay />}
         {toast && <Toast key={toast.at} {...toast} onDone={() => setToast(null)} />}
@@ -213,6 +216,9 @@ function DevBar({ state, setState, screen, setScreen, running, setRunning, dispa
           </button>
           <button onClick={() => dispatch('host:trigger', { type: 'shrink' })} className={chip(false, 'amber')}>
             ⭕ shrink
+          </button>
+          <button onClick={() => dispatch('host:trigger', { type: 'reveal' })} className={chip(false, 'amber')}>
+            📍 reveal
           </button>
           <button onClick={botCatch} className={chip(false, 'red')}>
             🎯 bot catch

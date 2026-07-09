@@ -158,8 +158,10 @@ export function applyAction(state, event, payload = {}) {
     case 'host:trigger': {
       if (payload.type === 'shrink') {
         s.boundary.radiusM = Math.max(20, Math.round(s.boundary.radiusM * s.settings.shrinkFactor));
-      } else if (payload.type === 'sound' || payload.type === 'torch') {
-        s.activeEvent = { type: payload.type, endsAt: Date.now() + s.settings.eventSeconds * 1000 };
+      } else if (['sound', 'torch', 'reveal'].includes(payload.type)) {
+        const secs =
+          payload.type === 'reveal' ? (s.settings.revealSeconds ?? 20) : s.settings.eventSeconds;
+        s.activeEvent = { type: payload.type, endsAt: Date.now() + secs * 1000 };
       }
       break;
     }
@@ -254,8 +256,12 @@ export function toGamePayload(state) {
     winnerTeamId: state.winnerTeamId,
     winnerTeamName: state.teams.find((t) => t.id === state.winnerTeamId)?.name ?? null,
     teams: state.teams,
-    // Dev view shows positions regardless of persona — it's a debugging tool.
-    positions: state.positions.map((pos) => ({ ...pos, role: roleOf(pos.teamId) })),
+    // Match production privacy: dots for the host persona, or for everyone
+    // while a reveal curveball is active.
+    positions:
+      p?.isHost || state.activeEvent?.type === 'reveal'
+        ? state.positions.map((pos) => ({ ...pos, role: roleOf(pos.teamId) }))
+        : undefined,
     you: p
       ? {
           id: p.id,

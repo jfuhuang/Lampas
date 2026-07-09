@@ -258,6 +258,21 @@ test('deleteTeam: lobby-only, removes team + members, spares host', () => {
   assert.equal(game.removeTeam([...game.teams.keys()][0]), null);
 });
 
+test('reveal curveball: players see positions only while active', () => {
+  const { game } = makeGame();
+  const { host, h1 } = setupTwoTeams(game);
+  game.updatePosition(h1.id, { lat: 51.5, lng: -0.12 });
+  game.startPhase('seek');
+  assert.equal('positions' in game.playerState(h1.id), false, 'hidden before reveal');
+  game.trigger('reveal');
+  const during = game.playerState(h1.id);
+  assert.equal(during.activeEvent.type, 'reveal');
+  assert.equal(during.positions.length, 1, 'everyone gets dots during reveal');
+  game.tick(game.activeEvent.endsAt + 1); // expire
+  assert.equal('positions' in game.playerState(h1.id), false, 'hidden again after');
+  void host;
+});
+
 test('reset to lobby restores caught teams to hiders', () => {
   const { game } = makeGame();
   const { h1 } = setupTwoTeams(game);

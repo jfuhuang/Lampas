@@ -35,6 +35,7 @@ export function GameProvider({ children }) {
   const [myPos, setMyPos] = useState(null); // own GPS only — never others'
   const [toast, setToast] = useState(null); // { text, tone, at }
   const soundPlayedFor = useRef(0); // dedupe sound event across resyncs
+  const revealToastFor = useRef(0); // dedupe reveal toast across resyncs
   const isHostRef = useRef(false); // event packets arrive outside React state
   const autoRejoined = useRef(false); // silent re-join in flight (guards stale unknownPlayer replies)
 
@@ -120,6 +121,13 @@ export function GameProvider({ children }) {
         // Only HIDER phones make noise (audible reveal); players vibrate.
         if (state.you?.role === 'hider') playRevealTone(secondsLeft);
         if (!state.you?.isHost) vibrate();
+      }
+      if (ev?.type === 'reveal' && ev.endsAt !== revealToastFor.current) {
+        revealToastFor.current = ev.endsAt;
+        if (!state.you?.isHost) {
+          vibrate();
+          showToast('📍 ALL LOCATIONS REVEALED — check the map!', 'alert');
+        }
       }
     };
 

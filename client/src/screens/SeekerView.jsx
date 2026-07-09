@@ -31,7 +31,7 @@ export default function SeekerView() {
         />
       </header>
 
-      <PlayerMap boundary={game.boundary} myPos={myPos} />
+      <PlayerMap boundary={game.boundary} myPos={myPos} others={game.positions} />
 
       {phase === 'hide' ? (
         <div className="rounded-xl border border-neutral-800 bg-panel p-6 text-center">

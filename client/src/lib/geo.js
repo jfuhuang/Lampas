@@ -126,30 +126,74 @@ export function vibrate(pattern = [400, 150, 400, 150, 800]) {
 // ── Torch (Android Chrome only) ────────────────────────────────────────
 
 let torchTrack = null;
+let torchSupported = null; // null = unknown, set by prewarmTorch()
 
 /**
- * Try to switch on the camera flash. Works on Android Chrome via the
- * `torch` MediaTrack constraint; impossible on iOS Safari. Returns true
- * only if the light actually turned on. Bonus feature — the full-screen
- * white prompt is the real mechanic.
+ * MUST be called from a user gesture (lobby Ready tap). Grabs then
+ * immediately releases the back camera so Android shows its permission
+ * prompt in the LOBBY — not mid-game when the 15s torch event is already
+ * ticking (getUserMedia from a socket handler has no gesture, so the
+ * prompt either interrupts play or never gets answered in time; that's
+ * why the torch "didn't work"). Also records whether the camera actually
+ * has a torch.
  */
-export async function enableTorch() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
-    });
-    const track = stream.getVideoTracks()[0];
-    const caps = track.getCapabilities?.() ?? {};
-    if (!caps.torch) {
-      track.stop();
-      return false;
-    }
-    await track.applyConstraints({ advanced: [{ torch: true }] });
-    torchTrack = track;
-    return true;
-  } catch {
+export async function prewarmTorch() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    torchSupported = false;
     return false;
   }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+    });
+    const track = stream.getVideoTracks()[0];
+    torchSupported = !!track.getCapabilities?.().torch;
+    track.stop();
+  } catch {
+    torchSupported = false;
+  }
+  return torchSupported;
+}
+
+/**
+ * Switch on the camera flash. Works on Android Chrome via the `torch`
+ * MediaTrack constraint; impossible on iOS Safari. Returns true only if
+ * the light actually turned on (verified via getSettings, since `advanced`
+ * constraints fail silently). Bonus feature — the full-screen white prompt
+ * is the real mechanic.
+ *
+ * Tries `exact: environment` first (guarantees the BACK camera — the
+ * plain hint sometimes yields the front camera, which has no torch),
+ * then falls back to the hint.
+ */
+export async function enableTorch() {
+  if (torchTrack) return true;
+  if (torchSupported === false) return false; // prewarm said no camera/torch
+  const attempts = [
+    { video: { facingMode: { exact: 'environment' } } },
+    { video: { facingMode: 'environment' } },
+  ];
+  for (const constraints of attempts) {
+    let track;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      track = stream.getVideoTracks()[0];
+      const caps = track.getCapabilities?.() ?? {};
+      // Some Androids under-report capabilities — attempt regardless and
+      // let the resulting settings be the judge.
+      await track.applyConstraints({ advanced: [{ torch: true }] });
+      const lit = caps.torch === true || track.getSettings?.().torch === true;
+      if (!lit) {
+        track.stop();
+        continue;
+      }
+      torchTrack = track;
+      return true;
+    } catch {
+      track?.stop();
+    }
+  }
+  return false;
 }
 
 export function disableTorch() {

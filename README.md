@@ -34,6 +34,8 @@ One URL, nothing to coordinate, no database — state lives in memory for one ni
    - 🔦 **Torch** — full-screen white "LIGHTS ON" flash on every phone
      (plus real camera torch on Android Chrome)
    - ⭕ **Shrink** — boundary radius drops, forcing hiders to relocate
+   - 📍 **Reveal** — everyone's live location appears on every player's map
+     for ~20 seconds (the one sanctioned privacy breach — spice)
 5. **Win** — last un-caught hider team standing. If the seek timer runs out,
    surviving hiders win. Teams that drift outside the boundary get a warning,
    then are auto-caught after a grace period.
@@ -241,6 +243,10 @@ lampas/
 - **No sound on the sound curveball** — the player never tapped Ready in the lobby
   (audio needs a user gesture), or the iPhone is on silent (vibration still fires
   on Android; iOS on silent stays silent — that's an OS rule).
+- **Torch doesn't fire on Android** — the player must tap **Ready in the lobby**
+  (that tap triggers the camera permission prompt; grant it). Torch needs HTTPS,
+  Chrome (not Samsung Internet/Firefox — spotty support), and a back camera with
+  flash. The full-screen white flash is the guaranteed fallback either way.
 - **Dots frozen / player greyed out on the referee map** — that phone locked its
   screen or lost signal. State re-syncs automatically the moment it returns.
 - **Server restarted mid-game** — state is in-memory by design. Phones silently

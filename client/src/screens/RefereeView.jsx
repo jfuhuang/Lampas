@@ -236,7 +236,7 @@ function LiveControls({ game, boundary }) {
   return (
     <>
       <Section title="Curveballs">
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <EventButton emoji="🔊" label="Sound" hint="hider phones ring" onClick={() => trigger('sound')} />
           <EventButton emoji="🔦" label="Torch" hint="lights-on flash" onClick={() => trigger('torch')} />
           <EventButton
@@ -244,6 +244,12 @@ function LiveControls({ game, boundary }) {
             label="Shrink"
             hint={boundary ? `→ ${Math.round(boundary.radiusM * game.settings.shrinkFactor)}m` : 'no boundary'}
             onClick={() => trigger('shrink')}
+          />
+          <EventButton
+            emoji="📍"
+            label="Reveal"
+            hint={`all dots, ${game.settings.revealSeconds ?? 20}s`}
+            onClick={() => trigger('reveal')}
           />
         </div>
       </Section>

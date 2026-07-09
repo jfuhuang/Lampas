@@ -192,7 +192,7 @@ the code as it exists — keep this section updated when the code changes.
 | Server entry | `server/index.js` | Express + Socket.IO, serves `client/dist`, SPA fallback, `/healthz`, 2s tick loop, `connectionStateRecovery` (2 min) |
 | State machine | `server/game.js` | `Game` class, transport-agnostic (emits via callback), phases `lobby→hide→seek→over`, curveballs, forced tag on grace expiry, win check |
 | Geometry | `server/geo.js` | Pure: `haversine`, `centroid`, `insideBoundary` (10m GPS margin), `distanceOutside` |
-| Unit tests | `server/geo.test.js`, `server/game.test.js` | `npm test` (node:test), 29 tests: geometry, credential-based host, team reuse, tag/convert, win rules (one-left / single-team / phantom teams), timers, boundary grace, privacy of positions, referee `you`, kick, reset |
+| Unit tests | `server/geo.test.js`, `server/game.test.js` | `npm test` (node:test), 30 tests: geometry, credential-based host, team reuse, tag/convert, win rules (one-left / single-team / phantom teams), timers, boundary grace, privacy of positions, referee `you`, kick, reset |
 | Client root | `client/src/App.jsx` | Thin: mounts `GameProvider`, routes by role, renders overlays |
 | Game context | `client/src/context/GameContext.jsx` | Owns socket subscription, state mirror, creds, position streaming, overlays/toasts. Consumed via `useGame()` / `useToast()` hooks — screens take NO game props |
 | Screens | `client/src/screens/` | `JoinScreen` (doubles as `/host` password login), `Lobby`, `HiderView` ("I'm caught" + collapsed boundary map), `SeekerView` (read-only hunt list + boundary map), `HostView` (plain referee for teamless hosts; 👑/🔦 tabs only if host has a team), `RefereeView` |
@@ -240,6 +240,29 @@ the code as it exists — keep this section updated when the code changes.
   original WebAudio square-wave siren; swap the mp3 to change the sound).
   `unlockAudio()` (lobby Ready tap) is still required — it satisfies the mobile
   autoplay gesture rule that also gates HTMLAudio playback.
+- **Reveal curveball** (2026-07-08): 4th host-triggered event `reveal` (📍 button;
+  `revealSeconds` setting, default 20). While active, `playerState()` includes ALL
+  positions (`positionsPayload()`, shared with refereeState) — seekers AND hiders see
+  every dot; the server tick broadcasts to everyone each 2s so dots move live, and
+  expiry pulls them again. PlayerMap force-opens with a red "● LIVE REVEAL" header +
+  colored dots (red seeker / green hider / amber host); players get toast + vibrate
+  (host exempt). This is the ONE sanctioned breach of the positions-privacy rule —
+  it was anticipated in the original constraints ("positions surface to seekers only
+  during a 'reveal' curveball"). Dev engine mirrors it, including the privacy gate.
+- **Android torch fix** (2026-07-08): torch "didn't work" because `getUserMedia` ran
+  from the socket event handler — no user gesture, so Android's camera permission
+  prompt landed mid-game (or too late for the 15s event). Fixes in `lib/geo.js`:
+  (1) `prewarmTorch()` on the lobby Ready tap grabs + releases the back camera so the
+  permission prompt happens in the lobby, and caches torch capability; (2)
+  `enableTorch()` tries `facingMode: {exact:'environment'}` first (plain hint can
+  yield the torchless FRONT camera), falls back to the hint, attempts the constraint
+  even when capabilities under-report, and verifies via `getSettings().torch` (the
+  `advanced` constraint fails silently). Requires HTTPS, as ever.
+- **Hider-teams corner badge** (2026-07-08): `HiderTeamsBadge` — fixed top-right chip
+  ("🏮 N hiding", tap to expand team names) on every in-game screen (hidden in lobby),
+  z-30 under toasts. Team NAMES are public (everyone saw the lobby); only positions
+  are secret. Counts only teams with players. Rendered from App `Overlays`; dev view
+  offsets it below the dev bar via the `position` prop.
 - **Game log + premature-end fixes** (2026-07-08): user reported games ending early.
   Two root causes found and fixed: (1) `outsideSince` set during the HIDE phase rolled
   into seek → grace already "expired" seconds into seek → instant boundary force-tag;
@@ -314,7 +337,7 @@ npm run dev:client  # vite :5173 (run alongside dev)
 
 ### Verified
 
-- `npm test`: 29/29 pass.
+- `npm test`: 30/30 pass.
 - `vite build`: clean (~115 kB gzip JS).
 - Scripted end-to-end socket smoke tests: credential host login (teamless), config,
   team roles, hide→seek auto-advance, out-of-bounds warning → forced tag after grace,
