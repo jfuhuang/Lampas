@@ -243,10 +243,12 @@ lampas/
 - **No sound on the sound curveball** — the player never tapped Ready in the lobby
   (audio needs a user gesture), or the iPhone is on silent (vibration still fires
   on Android; iOS on silent stays silent — that's an OS rule).
-- **Torch doesn't fire on Android** — the player must tap **Ready in the lobby**
-  (that tap triggers the camera permission prompt; grant it). Torch needs HTTPS,
-  Chrome (not Samsung Internet/Firefox — spotty support), and a back camera with
-  flash. The full-screen white flash is the guaranteed fallback either way.
+- **Torch doesn't fire on Android** — use the **"Test my flashlight"** button in
+  the lobby: it flashes the torch for 2s or tells you why not. Requirements: HTTPS,
+  Chrome (not Samsung Internet/Firefox — spotty support), camera permission granted
+  (the Ready tap prompts for it), back camera with flash. The app probes every
+  camera lens individually (multi-lens phones often bind the torch to one specific
+  camera). The full-screen white flash is the guaranteed fallback either way.
 - **Dots frozen / player greyed out on the referee map** — that phone locked its
   screen or lost signal. State re-syncs automatically the moment it returns.
 - **Server restarted mid-game** — state is in-memory by design. Phones silently

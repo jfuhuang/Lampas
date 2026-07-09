@@ -1,5 +1,12 @@
+import { useState } from 'react';
 import { socket } from '../lib/socket.js';
-import { unlockAudio, requestWakeLock, prewarmTorch } from '../lib/geo.js';
+import {
+  unlockAudio,
+  requestWakeLock,
+  prewarmTorch,
+  enableTorch,
+  disableTorch,
+} from '../lib/geo.js';
 import { useGame } from '../context/GameContext.jsx';
 
 /**
@@ -9,6 +16,23 @@ import { useGame } from '../context/GameContext.jsx';
  */
 export default function Lobby() {
   const { game, you, logout } = useGame();
+  const [torchTest, setTorchTest] = useState('idle'); // idle|testing|on|failed
+
+  // Field diagnostic: verify the phone's torch BEFORE the game, inside a
+  // guaranteed user gesture. 2s flash then off.
+  const testTorch = async () => {
+    setTorchTest('testing');
+    const ok = await enableTorch();
+    if (ok) {
+      setTorchTest('on');
+      setTimeout(() => {
+        disableTorch();
+        setTorchTest('idle');
+      }, 2000);
+    } else {
+      setTorchTest('failed');
+    }
+  };
 
   const handleReady = async () => {
     // One tap unlocks every gesture-gated API: audio, wake lock, and the
@@ -40,6 +64,17 @@ export default function Lobby() {
           }`}
         >
           {you.ready ? '✓ Ready — tap to unready' : "I'm ready"}
+        </button>
+        <button
+          onClick={testTorch}
+          disabled={torchTest === 'testing' || torchTest === 'on'}
+          className="rounded-xl border border-neutral-700 bg-panel px-4 py-3 text-sm font-bold text-neutral-300 active:scale-95 disabled:opacity-50"
+        >
+          {torchTest === 'idle' && '🔦 Test my flashlight (Android)'}
+          {torchTest === 'testing' && 'Trying cameras…'}
+          {torchTest === 'on' && '💡 Torch ON — turning off in 2s'}
+          {torchTest === 'failed' &&
+            '❌ No torch — use Chrome + allow camera (screen flash still works)'}
         </button>
         <p className="text-center text-xs text-neutral-500">
           Ready also enables sound &amp; keeps your screen awake. Arrive charged — GPS eats battery.

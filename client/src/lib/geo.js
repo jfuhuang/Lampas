@@ -168,11 +168,30 @@ export async function prewarmTorch() {
  */
 export async function enableTorch() {
   if (torchTrack) return true;
-  if (torchSupported === false) return false; // prewarm said no camera/torch
+  if (!navigator.mediaDevices?.getUserMedia) return false;
+  // NOTE: a failed prewarm does NOT short-circuit here — the user may have
+  // granted camera permission after it ran, and the per-device probe below
+  // can succeed where the facingMode prewarm couldn't.
+  void torchSupported;
+
+  // Constraint attempts, cheapest first. On multi-lens Androids the torch
+  // is often bound to ONE specific back camera, so after the facingMode
+  // attempts we enumerate every camera and probe them individually.
   const attempts = [
     { video: { facingMode: { exact: 'environment' } } },
     { video: { facingMode: 'environment' } },
   ];
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    for (const d of devices) {
+      if (d.kind === 'videoinput') {
+        attempts.push({ video: { deviceId: { exact: d.deviceId } } });
+      }
+    }
+  } catch {
+    /* enumeration blocked — facingMode attempts still run */
+  }
+
   for (const constraints of attempts) {
     let track;
     try {

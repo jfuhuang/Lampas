@@ -258,6 +258,13 @@ the code as it exists — keep this section updated when the code changes.
   yield the torchless FRONT camera), falls back to the hint, attempts the constraint
   even when capabilities under-report, and verifies via `getSettings().torch` (the
   `advanced` constraint fails silently). Requires HTTPS, as ever.
+  **Round 2 (same day)**: (3) per-device probe — multi-lens Androids often bind the
+  torch to ONE specific camera, so after the facingMode attempts `enableTorch()`
+  enumerates every `videoinput` and tries each by `deviceId`; (4) a failed prewarm no
+  longer short-circuits (permission may be granted later); (5) lobby **"Test my
+  flashlight"** button — field diagnostic inside a guaranteed gesture, 2s flash, shows
+  ❌ + guidance (Chrome + camera permission) on failure. Samsung Internet/Firefox
+  remain unsupported by the platform — screen flash is the guaranteed mechanic.
 - **Hider-teams corner badge** (2026-07-08): `HiderTeamsBadge` — fixed top-right chip
   ("🏮 N hiding", tap to expand team names) on every in-game screen (hidden in lobby),
   z-30 under toasts. Team NAMES are public (everyone saw the lobby); only positions
