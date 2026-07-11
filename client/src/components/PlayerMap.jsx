@@ -11,7 +11,13 @@ import { addStyleControl } from '../lib/mapStyles.js';
  * and the map force-opens to show them. Collapsible: hiders want a dark
  * screen.
  */
-export default function PlayerMap({ boundary, myPos, others, collapsedByDefault = false }) {
+export default function PlayerMap({
+  boundary,
+  myPos,
+  heading,
+  others,
+  collapsedByDefault = false,
+}) {
   const [open, setOpen] = useState(!collapsedByDefault);
   const revealed = (others?.length ?? 0) > 0;
 
@@ -38,8 +44,9 @@ export default function PlayerMap({ boundary, myPos, others, collapsedByDefault 
       </button>
       {open &&
         (boundary ? (
-          <div className="h-[32dvh] min-h-[200px] overflow-hidden rounded-b-xl">
-            <MapCanvas boundary={boundary} myPos={myPos} others={others} />
+          <div className="relative h-[32dvh] min-h-[200px] overflow-hidden rounded-b-xl">
+            <MapCanvas boundary={boundary} myPos={myPos} heading={heading} others={others} />
+            <NorthBadge />
           </div>
         ) : (
           <p className="px-3 pb-3 text-sm text-neutral-500">
@@ -50,11 +57,21 @@ export default function PlayerMap({ boundary, myPos, others, collapsedByDefault 
   );
 }
 
-function MapCanvas({ boundary, myPos, others }) {
+/** Maps are always north-up (Leaflet doesn't rotate) — badge reminds. */
+export function NorthBadge() {
+  return (
+    <div className="pointer-events-none absolute right-2 top-2 z-[500] rounded-md bg-night/80 px-1.5 py-0.5 text-xs font-black text-neutral-300">
+      N ↑
+    </div>
+  );
+}
+
+function MapCanvas({ boundary, myPos, heading, others }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const circleRef = useRef(null);
   const meRef = useRef(null);
+  const headingRef = useRef(null); // rotating compass arrow over own dot
   const othersLayerRef = useRef(null); // reveal-event dots, redrawn per update
 
   useEffect(() => {
@@ -120,6 +137,33 @@ function MapCanvas({ boundary, myPos, others }) {
       meRef.current.setLatLng([myPos.lat, myPos.lng]);
     }
   }, [myPos]);
+
+  // Compass arrow: rotates with the device so players can orient at night.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!myPos || heading == null) {
+      headingRef.current?.remove();
+      headingRef.current = null;
+      return;
+    }
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="compass-arrow" style="transform: rotate(${heading}deg)">▲</div>`,
+      iconSize: [34, 34],
+      iconAnchor: [17, 17],
+    });
+    if (!headingRef.current) {
+      headingRef.current = L.marker([myPos.lat, myPos.lng], {
+        icon,
+        interactive: false,
+        zIndexOffset: 1000,
+      }).addTo(map);
+    } else {
+      headingRef.current.setLatLng([myPos.lat, myPos.lng]);
+      headingRef.current.setIcon(icon);
+    }
+  }, [myPos, heading]);
 
   return <div ref={mapEl} className="h-full w-full" />;
 }

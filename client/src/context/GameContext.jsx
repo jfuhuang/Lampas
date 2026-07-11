@@ -15,6 +15,7 @@ import {
   enableTorch,
   disableTorch,
   requestWakeLock,
+  startCompass,
 } from '../lib/geo.js';
 
 /**
@@ -34,6 +35,7 @@ export function GameProvider({ children }) {
   const [connected, setConnected] = useState(socket.connected);
   const [torchActive, setTorchActive] = useState(false);
   const [myPos, setMyPos] = useState(null); // own GPS only — never others'
+  const [heading, setHeading] = useState(null); // compass degrees, device-local
   const [toast, setToast] = useState(null); // { text, tone, at }
   const soundPlayedFor = useRef(0); // dedupe sound event across resyncs
   const revealToastFor = useRef(0); // dedupe reveal toast across resyncs
@@ -144,8 +146,8 @@ export function GameProvider({ children }) {
       vibrate([200, 100, 200]);
       showToast(
         metersOutside != null
-          ? `OUT OF BOUNDS — ${metersOutside}m outside. Get back inside!`
-          : `Team ${teamName ?? ''} is out of bounds`,
+          ? `OUT OF BOUNDS — ${metersOutside}m outside. Your location is now VISIBLE to everyone until you're back in!`
+          : `Team ${teamName ?? ''} is out of bounds — their dots are exposed`,
         'warn',
       );
     };
@@ -209,6 +211,8 @@ export function GameProvider({ children }) {
     // Safety net for players who skipped Ready or reloaded mid-game: the
     // Wake Lock API needs no gesture, so grab it whenever play is live.
     requestWakeLock();
+    // Compass heading for the map arrow (iOS permission came from Ready).
+    const stopCompass = startCompass(setHeading);
     const stop = startPositionStream(
       (pos) => {
         setMyPos(pos); // local echo for the player boundary map
@@ -216,7 +220,10 @@ export function GameProvider({ children }) {
       },
       () => showToast('GPS unavailable — check location permission', 'warn'),
     );
-    return stop;
+    return () => {
+      stop();
+      stopCompass();
+    };
   }, [joined, phase, showToast]);
 
   const value = {
@@ -227,6 +234,7 @@ export function GameProvider({ children }) {
     connected,
     torchActive,
     myPos,
+    heading,
     toast,
     dismissToast: () => setToast(null),
     showToast,

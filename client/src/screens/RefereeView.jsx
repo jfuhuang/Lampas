@@ -4,6 +4,7 @@ import { getCurrentPosition, unlockAudio, requestWakeLock } from '../lib/geo.js'
 import QRCode from 'qrcode';
 import Countdown from '../components/Countdown.jsx';
 import RefereeMap from '../components/RefereeMap.jsx';
+import { NorthBadge } from '../components/PlayerMap.jsx';
 import GameStats from '../components/GameStats.jsx';
 import { useGame, useToast } from '../context/GameContext.jsx';
 import { TeamList } from './Lobby.jsx';
@@ -52,8 +53,9 @@ export default function RefereeView() {
   return (
     <div className="flex flex-1 flex-col gap-4 py-4 lg:grid lg:grid-cols-[1fr_380px] lg:items-start">
       {/* ── Map (always visible; the referee's main instrument) ── */}
-      <div className="h-[45dvh] min-h-[280px] overflow-hidden rounded-xl border border-neutral-800 lg:sticky lg:top-4 lg:h-[calc(100dvh-2rem)]">
+      <div className="relative h-[45dvh] min-h-[280px] overflow-hidden rounded-xl border border-neutral-800 lg:sticky lg:top-4 lg:h-[calc(100dvh-2rem)]">
         <RefereeMap positions={positions} boundary={boundary} phase={phase} onSetCenter={setCenter} />
+        <NorthBadge />
       </div>
 
       <div className="flex flex-col gap-4">

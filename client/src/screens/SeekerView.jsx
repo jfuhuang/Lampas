@@ -10,7 +10,7 @@ import { PhaseBadge, GameOver } from './HiderView.jsx';
  * keeps the ground truth on the caught side and kills disputed tags.
  */
 export default function SeekerView() {
-  const { game, myPos } = useGame();
+  const { game, myPos, heading } = useGame();
   const { phase, phaseEndsAt, serverNow } = game;
 
   if (phase === 'over') return <GameOver />;
@@ -31,7 +31,7 @@ export default function SeekerView() {
         />
       </header>
 
-      <PlayerMap boundary={game.boundary} myPos={myPos} others={game.positions} />
+      <PlayerMap boundary={game.boundary} myPos={myPos} heading={heading} others={game.positions} />
 
       {phase === 'hide' ? (
         <div className="rounded-xl border border-neutral-800 bg-panel p-6 text-center">

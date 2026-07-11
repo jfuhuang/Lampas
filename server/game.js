@@ -416,9 +416,10 @@ export class Game {
         const members = [...this.players.values()].filter((p) => p.teamId === team.id);
         if (inside) {
           if (members.some((m) => m.outsideSince)) {
-            this.logEvent('boundary', `team ${team.name} back inside — grace cleared`);
+            this.logEvent('boundary', `team ${team.name} back inside — no longer exposed`);
+            for (const m of members) m.outsideSince = null;
+            this.broadcastState(); // pull their dots off everyone's maps NOW
           }
-          for (const m of members) m.outsideSince = null;
           continue;
         }
         // NO automatic penalty: GPS is too janky to auto-tag on (removed
@@ -445,6 +446,7 @@ export class Game {
             { teamId: team.id, teamName: team.name },
             { room: 'referees' },
           );
+          this.broadcastState(); // exposure penalty: their dots appear everywhere
         }
       }
     }
@@ -542,6 +544,22 @@ export class Game {
       }));
   }
 
+  /**
+   * Positions of players currently flagged out-of-bounds (outsideSince
+   * set). This is the boundary penalty since the forced tag was removed:
+   * leave the circle and EVERYONE sees your dot until you're back inside.
+   */
+  exposedPositions() {
+    return this.positionsPayload().filter(
+      (pos) => this.players.get(pos.playerId)?.outsideSince,
+    );
+  }
+
+  /** True while anyone is exposed — index.js broadcasts per tick then. */
+  hasExposed() {
+    return [...this.players.values()].some((p) => p.outsideSince);
+  }
+
   refereeState(playerId = null) {
     return {
       ...(playerId ? this.playerState(playerId) : this.baseState()),
@@ -564,9 +582,16 @@ export class Game {
     const player = this.players.get(playerId);
     const team = player?.teamId ? this.teams.get(player.teamId) : null;
     const revealed = this.activeEvent?.type === 'reveal';
+    // Two sanctioned position leaks: the reveal curveball (everyone), and
+    // out-of-bounds offenders (their dots only) as the boundary penalty.
+    const exposed = revealed ? [] : this.exposedPositions();
     return {
       ...this.baseState(),
-      ...(revealed ? { positions: this.positionsPayload() } : {}),
+      ...(revealed
+        ? { positions: this.positionsPayload() }
+        : exposed.length
+          ? { positions: exposed }
+          : {}),
       you: player
         ? {
             id: player.id,

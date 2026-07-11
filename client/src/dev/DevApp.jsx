@@ -82,6 +82,7 @@ export default function DevApp() {
     connected: true,
     torchActive,
     myPos: state.positions.find((p) => p.playerId === state.youId) ?? null,
+    heading: 45, // fixed fake heading so the arrow renders in dev
     toast,
     dismissToast: () => setToast(null),
     showToast,

@@ -240,6 +240,34 @@ the code as it exists — keep this section updated when the code changes.
   original WebAudio square-wave siren; swap the mp3 to change the sound).
   `unlockAudio()` (lobby Ready tap) is still required — it satisfies the mobile
   autoplay gesture rule that also gates HTMLAudio playback.
+- **Compass** (2026-07-09): sky-blue heading arrow (▲, rotates with device, 250ms
+  throttle + CSS transition) over the player's own dot on PlayerMap, plus an "N ↑"
+  badge on both maps (Leaflet is always north-up). `startCompass()` in lib/geo.js:
+  iOS `webkitCompassHeading`, Android `deviceorientationabsolute` alpha (converted).
+  iOS orientation permission rides the lobby Ready tap (`requestCompassPermission()`
+  — gesture required). Heading streams only during hide/seek via GameContext
+  (`heading` in context). Dev view fakes 45°.
+- **Out-of-bounds exposure penalty** (2026-07-09): replaces the removed forced tag.
+  While a hider team is flagged outside (`outsideSince` set), those players'
+  positions ship in EVERY player's `game:state` (`exposedPositions()` — filtered by
+  the flag) and render on all maps; back inside → immediate broadcast pulls the dots.
+  Tick broadcasts to everyone while anyone is exposed (`hasExposed()`), same as
+  reveal. Warning toast tells the offender they're visible. Self-correcting, GPS-jank
+  tolerant: worst case is brief exposure, never an auto-loss. Now the THIRD sanctioned
+  position leak (referee always / reveal curveball / OOB offenders).
+- **Audio + torch-off bugfixes** (2026-07-09, field-reported):
+  (1) *No sound on Samsung/others*: the mp3 was played via `new Audio().play()` from
+  a socket handler — autoplay policy blocks HTMLMediaElement without a gesture
+  (unlocking the AudioContext does NOT unlock media elements). Now `unlockAudio()`
+  (Ready tap) pre-decodes `/sounds/reveal.mp3` into a WebAudio buffer and
+  `playRevealTone()` plays it through the unlocked context (looped, 0.35 gain),
+  falling back to the synthesized 880/660 siren if decode failed.
+  (2) *iPhone torch stuck ON*: race — iOS camera acquisition takes seconds; the event
+  could expire (disableTorch no-op, track null) before `enableTorch()` resolved and
+  lit an orphan torch. Fixed with a `torchDesired` flag (disable aborts in-flight
+  acquisition; acquisition re-checks before keeping the track) and `killTorchTrack()`
+  applies `torch:false` BEFORE `track.stop()` (some iOS versions leave the lamp on
+  after a bare stop). `disableTorch()` is async now.
 - **Shrink by amount** (2026-07-09): `host:trigger` shrink accepts `radiusM`
   (absolute target, wins) or `factor` (0–1 multiplier); no payload = default
   `shrinkFactor` (0.6). Server clamps to [20m, current] — shrink can NEVER grow the

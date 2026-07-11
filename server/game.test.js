@@ -288,6 +288,22 @@ test('stats: only when over, survivors first, caughtBy labels, no seeker teams',
   assert.ok(stats.timeline.some((e) => e.type === 'over'));
 });
 
+test('out-of-bounds exposure: offender dots visible to players, cleared when back', () => {
+  const { game } = makeGame();
+  const { h1, h2 } = setupTwoTeams(game);
+  game.configure({ boundary: { center: { lat: 51.5, lng: -0.12 }, radiusM: 100 } });
+  game.startPhase('seek');
+  game.updatePosition(h1.id, { lat: 51.51, lng: -0.12 }); // Alice way out
+  game.updatePosition(h2.id, { lat: 51.5, lng: -0.12 }); // Bob inside
+  game.tick(Date.now());
+  const during = game.playerState(h2.id);
+  assert.equal(during.positions?.length, 1, 'only the offender is exposed');
+  assert.equal(during.positions[0].playerId, h1.id);
+  game.updatePosition(h1.id, { lat: 51.5, lng: -0.12 }); // back inside
+  game.tick(Date.now());
+  assert.equal('positions' in game.playerState(h2.id), false, 'exposure cleared');
+});
+
 test('reveal curveball: players see positions only while active', () => {
   const { game } = makeGame();
   const { host, h1 } = setupTwoTeams(game);

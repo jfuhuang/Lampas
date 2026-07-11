@@ -61,10 +61,11 @@ export default function HowToPlay() {
 
       <Card title="⭕ The boundary">
         Stay inside the amber circle on your map. Drift out and your phone warns you
-        (it also buzzes when you're within ~20m of the edge). There's no automatic
-        penalty — GPS is too wobbly for that — but the <b>referee sees exactly who's
-        outside</b> and can tag teams that abuse it. GPS wobbles ±10m — don't hug the
-        line.
+        (it also buzzes when you're within ~20m of the edge) — and here's the real
+        penalty: <b>while you're outside, your live location shows on everyone's
+        map</b>. Get back inside and your dot disappears again. No auto-catch (GPS
+        is too wobbly for that), but the referee can tag teams that abuse it. GPS
+        wobbles ±10m — don't hug the line.
       </Card>
 
       <Card title="🎲 Curveballs (host-triggered)">

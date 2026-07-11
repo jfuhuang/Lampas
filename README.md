@@ -38,9 +38,10 @@ One URL, nothing to coordinate, no database — state lives in memory for one ni
      for ~20 seconds (the one sanctioned privacy breach — spice)
 5. **Win** — last un-caught hider team standing. If the seek timer runs out,
    surviving hiders win. Teams that drift outside the boundary get a warning
-   (no automatic penalty — the referee sees offenders and tags manually if
-   needed). Hider phones also buzz privately when within ~20m of the edge
-   (computed on-device — nothing sent anywhere).
+   **and their live location shows on everyone's map until they're back
+   inside** — the honest-GPS-friendly penalty (no auto-catch; the referee can
+   still tag abusers manually). Hider phones also buzz privately when within
+   ~20m of the edge (computed on-device — nothing sent anywhere).
 6. **Game over** — everyone sees the survival leaderboard (who lasted how long,
    how each team got caught) and an event timeline.
 

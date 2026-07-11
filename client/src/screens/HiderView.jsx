@@ -15,7 +15,7 @@ const HEARTBEAT_THROTTLE_MS = 10_000;
  * hiding spot. NO positions of anyone are ever shown here (privacy rule).
  */
 export default function HiderView() {
-  const { game, myPos } = useGame();
+  const { game, myPos, heading } = useGame();
   const [confirming, setConfirming] = useState(false);
   const lastBeat = useRef(0);
   const { phase, phaseEndsAt, serverNow, you } = game;
@@ -75,7 +75,7 @@ export default function HiderView() {
       </div>
 
       {/* Collapsed by default — a lit screen gives away a hiding spot. */}
-      <PlayerMap boundary={game.boundary} myPos={myPos} others={game.positions} collapsedByDefault />
+      <PlayerMap boundary={game.boundary} myPos={myPos} heading={heading} others={game.positions} collapsedByDefault />
 
       <div className="mt-auto flex flex-col gap-2">
         {confirming ? (

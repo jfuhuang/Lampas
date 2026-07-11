@@ -70,8 +70,8 @@ const game = new Game((event, payload, scope = {}) => {
 // refreshes here so moving dots stay live without extra traffic.
 setInterval(() => {
   game.tick();
-  if (game.activeEvent?.type === 'reveal') {
-    game.broadcastState(); // everyone's dots move live during the reveal
+  if (game.activeEvent?.type === 'reveal' || game.hasExposed()) {
+    game.broadcastState(); // dots move live during reveal / while someone's exposed
   } else if (game.phase !== 'lobby') {
     emitStateToHosts();
   }

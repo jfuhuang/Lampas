@@ -107,10 +107,17 @@ void wakeLock;
 // ── Audio ──────────────────────────────────────────────────────────────
 
 let audioCtx = null;
+let revealBuffer = null; // decoded /sounds/reveal.mp3
+let revealSource = null; // currently playing source (so re-triggers restart)
 
 /**
  * MUST be called from a user gesture (the lobby Ready tap). Creates and
- * resumes the AudioContext so later `event:sound` tones can play unprompted.
+ * resumes the AudioContext AND pre-decodes the reveal clip into a WebAudio
+ * buffer. Later playback goes through the unlocked AudioContext — NOT an
+ * HTMLAudio element, because unlocking the context does not unlock media
+ * elements: `new Audio().play()` from a socket handler throws
+ * NotAllowedError on Chrome/Samsung (this was the "no sound on Samsung"
+ * bug). WebAudio buffers have no such per-element gesture rule.
  */
 export function unlockAudio() {
   try {
@@ -122,23 +129,63 @@ export function unlockAudio() {
     src.buffer = buf;
     src.connect(audioCtx.destination);
     src.start(0);
+    // Pre-decode the reveal clip (async is fine — event fires much later).
+    if (!revealBuffer) {
+      fetch('/sounds/reveal.mp3')
+        .then((r) => r.arrayBuffer())
+        .then((b) => audioCtx.decodeAudioData(b))
+        .then((decoded) => {
+          revealBuffer = decoded;
+        })
+        .catch(() => {});
+    }
     return true;
   } catch {
     return false;
   }
 }
 
-/** Quiet reveal chime for the `sound` curveball. Runs `seconds` long. */
+/**
+ * Reveal sound for the `sound` curveball, looped for `seconds`.
+ * Plays the decoded clip through WebAudio; falls back to a synthesized
+ * two-tone siren if the clip failed to load. Requires unlockAudio() to
+ * have run (Ready tap).
+ */
 export function playRevealTone(seconds = 10) {
   if (!audioCtx) return false;
-  const audio = new Audio('/sounds/reveal.mp3');
-  audio.volume = 0.35;
-  audio.loop = true;
-  audio.play().catch(() => {});
-  setTimeout(() => {
-    audio.pause();
-    audio.currentTime = 0;
-  }, seconds * 1000);
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  try {
+    revealSource?.stop();
+  } catch {
+    /* already ended */
+  }
+  const now = audioCtx.currentTime;
+  const gain = audioCtx.createGain();
+  gain.connect(audioCtx.destination);
+
+  if (revealBuffer) {
+    gain.gain.setValueAtTime(0.35, now);
+    const src = audioCtx.createBufferSource();
+    src.buffer = revealBuffer;
+    src.loop = true;
+    src.connect(gain);
+    src.start(now);
+    src.stop(now + seconds);
+    revealSource = src;
+    return true;
+  }
+
+  // Fallback siren: 880/660 Hz square-wave alternation.
+  gain.gain.setValueAtTime(0.5, now);
+  const osc = audioCtx.createOscillator();
+  osc.type = 'square';
+  for (let t = 0; t < seconds; t += 0.5) {
+    osc.frequency.setValueAtTime(t % 1 === 0 ? 880 : 660, now + t);
+  }
+  osc.connect(gain);
+  osc.start(now);
+  osc.stop(now + seconds);
+  revealSource = osc;
   return true;
 }
 
@@ -151,10 +198,61 @@ export function vibrate(pattern = [400, 150, 400, 150, 800]) {
   }
 }
 
+// ── Compass (device heading) ───────────────────────────────────────────
+
+/**
+ * iOS requires an explicit permission prompt for orientation events, and
+ * the request MUST come from a user gesture — so this rides the lobby
+ * Ready tap alongside audio/wake-lock/camera. Android needs no prompt.
+ */
+export async function requestCompassPermission() {
+  try {
+    if (
+      typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function'
+    ) {
+      return (await DeviceOrientationEvent.requestPermission()) === 'granted';
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stream compass heading (degrees clockwise from north) to `onHeading`.
+ * iOS exposes `webkitCompassHeading` directly; Android gives absolute
+ * `alpha` (counter-clockwise), converted here. Returns stop().
+ */
+export function startCompass(onHeading, throttleMs = 250) {
+  if (!('DeviceOrientationEvent' in window)) return () => {};
+  let last = 0;
+  const handler = (e) => {
+    const now = Date.now();
+    if (now - last < throttleMs) return;
+    let heading = null;
+    if (typeof e.webkitCompassHeading === 'number') heading = e.webkitCompassHeading;
+    else if (e.absolute && typeof e.alpha === 'number') heading = (360 - e.alpha) % 360;
+    if (heading !== null) {
+      last = now;
+      onHeading(Math.round(heading));
+    }
+  };
+  const evt =
+    'ondeviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation';
+  window.addEventListener(evt, handler);
+  return () => window.removeEventListener(evt, handler);
+}
+
 // ── Torch (Android Chrome only) ────────────────────────────────────────
 
 let torchTrack = null;
 let torchSupported = null; // null = unknown, set by prewarmTorch()
+// Desired-state flag closes an iPhone race: camera acquisition can take
+// SECONDS on iOS, so the event could expire (disableTorch → no-op, track
+// still null) BEFORE enableTorch resolved and lit a torch nobody would
+// ever turn off. Every acquisition re-checks this flag before keeping it.
+let torchDesired = false;
 
 /**
  * MUST be called from a user gesture (lobby Ready tap). Grabs then
@@ -195,6 +293,7 @@ export async function prewarmTorch() {
  * then falls back to the hint.
  */
 export async function enableTorch() {
+  torchDesired = true;
   if (torchTrack) return true;
   if (!navigator.mediaDevices?.getUserMedia) return false;
   // NOTE: a failed prewarm does NOT short-circuit here — the user may have
@@ -221,6 +320,7 @@ export async function enableTorch() {
   }
 
   for (const constraints of attempts) {
+    if (!torchDesired) return false; // event ended while we were acquiring
     let track;
     try {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -234,6 +334,11 @@ export async function enableTorch() {
         track.stop();
         continue;
       }
+      if (!torchDesired) {
+        // disableTorch() ran mid-acquisition — kill the light we just made.
+        await killTorchTrack(track);
+        return false;
+      }
       torchTrack = track;
       return true;
     } catch {
@@ -243,9 +348,22 @@ export async function enableTorch() {
   return false;
 }
 
-export function disableTorch() {
+/** Explicit torch:false BEFORE stop — some iOS versions leave the lamp
+ *  burning on a bare track.stop(). */
+async function killTorchTrack(track) {
+  try {
+    await track.applyConstraints({ advanced: [{ torch: false }] });
+  } catch {
+    /* constraint refused — stop() below is still the best we can do */
+  }
+  track.stop();
+}
+
+export async function disableTorch() {
+  torchDesired = false; // aborts any in-flight acquisition
   if (torchTrack) {
-    torchTrack.stop(); // stopping the track kills the torch too
+    const track = torchTrack;
     torchTrack = null;
+    await killTorchTrack(track);
   }
 }

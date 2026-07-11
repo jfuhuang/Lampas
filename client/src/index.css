@@ -43,6 +43,21 @@ body {
   filter: brightness(0.7) contrast(1.1) saturate(0.6);
 }
 
+/* Compass heading arrow over the player's own dot */
+.compass-arrow {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #38bdf8;
+  font-size: 22px;
+  line-height: 1;
+  text-shadow: 0 0 4px #000;
+  transition: transform 0.25s ease-out;
+  transform-origin: center;
+}
+
 /* Layer picker readable on the dark theme */
 .leaflet-control-layers {
   background: #16161f;

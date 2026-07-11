@@ -6,6 +6,7 @@ import {
   prewarmTorch,
   enableTorch,
   disableTorch,
+  requestCompassPermission,
 } from '../lib/geo.js';
 import { useGame } from '../context/GameContext.jsx';
 
@@ -39,6 +40,7 @@ export default function Lobby() {
     // camera permission for the Android torch (prompt now, not mid-event).
     unlockAudio();
     prewarmTorch(); // fire-and-forget; Android shows its prompt here
+    requestCompassPermission(); // iOS orientation prompt (map heading arrow)
     await requestWakeLock();
     socket.emit('player:ready', { ready: !you.ready });
   };
