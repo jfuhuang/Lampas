@@ -272,7 +272,15 @@ function InviteQR() {
 
 function LiveControls({ game, boundary }) {
   const [confirmReset, setConfirmReset] = useState(false);
-  const trigger = (type) => socket.emit('host:trigger', { type });
+  const [shrinkOpen, setShrinkOpen] = useState(false);
+  const [targetR, setTargetR] = useState('');
+  const trigger = (type, opts = {}) => socket.emit('host:trigger', { type, ...opts });
+
+  const shrinkTo = (opts) => {
+    trigger('shrink', opts);
+    setShrinkOpen(false);
+    setTargetR('');
+  };
 
   return (
     <>
@@ -283,8 +291,8 @@ function LiveControls({ game, boundary }) {
           <EventButton
             emoji="⭕"
             label="Shrink"
-            hint={boundary ? `→ ${Math.round(boundary.radiusM * game.settings.shrinkFactor)}m` : 'no boundary'}
-            onClick={() => trigger('shrink')}
+            hint={boundary ? `now ${boundary.radiusM}m — pick amount` : 'no boundary'}
+            onClick={() => setShrinkOpen(!shrinkOpen)}
           />
           <EventButton
             emoji="📍"
@@ -293,6 +301,43 @@ function LiveControls({ game, boundary }) {
             onClick={() => trigger('reveal')}
           />
         </div>
+        {shrinkOpen && boundary && (
+          <div className="mt-2 rounded-lg border border-amber-900 bg-night p-2">
+            <div className="flex gap-2">
+              {[0.9, 0.75, 0.5].map((f) => (
+                <button
+                  key={f}
+                  onClick={() => shrinkTo({ factor: f })}
+                  className="flex-1 rounded-lg bg-neutral-800 px-2 py-2 text-sm font-bold active:scale-95"
+                >
+                  −{Math.round((1 - f) * 100)}%
+                  <span className="block text-[10px] text-neutral-500">
+                    → {Math.round(boundary.radiusM * f)}m
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="number"
+                min="20"
+                max={boundary.radiusM}
+                placeholder={`target (≤ ${boundary.radiusM})`}
+                value={targetR}
+                onChange={(e) => setTargetR(e.target.value)}
+                className="min-w-0 flex-1 rounded-lg border border-neutral-700 bg-night px-3 py-2 text-base outline-none focus:border-lamp"
+                aria-label="Shrink to exact radius in meters"
+              />
+              <button
+                onClick={() => +targetR >= 20 && shrinkTo({ radiusM: +targetR })}
+                disabled={!(+targetR >= 20 && +targetR < boundary.radiusM)}
+                className="rounded-lg bg-amber-500 px-4 py-2 font-black text-night active:scale-95 disabled:opacity-40"
+              >
+                Shrink to m
+              </button>
+            </div>
+          </div>
+        )}
       </Section>
 
       <Section title="Manual tag (referee override)">

@@ -107,6 +107,21 @@ test('shrink event reduces boundary radius by shrinkFactor', () => {
   assert.equal(game.boundary.radiusM, 120); // 200 * 0.6
 });
 
+test('shrink accepts a custom amount and never grows the circle', () => {
+  const { game } = makeGame();
+  setupTwoTeams(game);
+  game.configure({ boundary: { center: { lat: 51.5, lng: -0.12 }, radiusM: 200 } });
+  game.startPhase('seek');
+  game.trigger('shrink', { factor: 0.9 });
+  assert.equal(game.boundary.radiusM, 180); // −10%
+  game.trigger('shrink', { radiusM: 100 });
+  assert.equal(game.boundary.radiusM, 100); // exact target
+  game.trigger('shrink', { radiusM: 500 }); // "shrink" upward → clamped
+  assert.equal(game.boundary.radiusM, 100, 'shrink can never grow the circle');
+  game.trigger('shrink', { radiusM: 5 }); // below floor
+  assert.equal(game.boundary.radiusM, 20, '20m floor');
+});
+
 test('hide phase auto-advances to seek when timer expires', () => {
   const { game } = makeGame();
   setupTwoTeams(game);

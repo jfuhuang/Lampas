@@ -161,8 +161,8 @@ io.on('connection', (socket) => {
     if (isHost()) game.startPhase(phase);
   });
 
-  socket.on('host:trigger', ({ type } = {}) => {
-    if (isHost()) game.trigger(type);
+  socket.on('host:trigger', ({ type, ...opts } = {}) => {
+    if (isHost()) game.trigger(type, opts);
   });
 
   socket.on('host:config', ({ boundary, settings } = {}) => {

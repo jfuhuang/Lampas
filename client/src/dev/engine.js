@@ -157,7 +157,11 @@ export function applyAction(state, event, payload = {}) {
       break;
     case 'host:trigger': {
       if (payload.type === 'shrink') {
-        s.boundary.radiusM = Math.max(20, Math.round(s.boundary.radiusM * s.settings.shrinkFactor));
+        const oldR = s.boundary.radiusM;
+        const newR = Number.isFinite(+payload.radiusM)
+          ? +payload.radiusM
+          : oldR * (Number.isFinite(+payload.factor) ? +payload.factor : s.settings.shrinkFactor);
+        s.boundary.radiusM = Math.min(oldR, Math.max(20, Math.round(newR)));
       } else if (['sound', 'torch', 'reveal'].includes(payload.type)) {
         const secs =
           payload.type === 'reveal' ? (s.settings.revealSeconds ?? 20) : s.settings.eventSeconds;

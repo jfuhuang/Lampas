@@ -240,6 +240,13 @@ the code as it exists — keep this section updated when the code changes.
   original WebAudio square-wave siren; swap the mp3 to change the sound).
   `unlockAudio()` (lobby Ready tap) is still required — it satisfies the mobile
   autoplay gesture rule that also gates HTMLAudio playback.
+- **Shrink by amount** (2026-07-09): `host:trigger` shrink accepts `radiusM`
+  (absolute target, wins) or `factor` (0–1 multiplier); no payload = default
+  `shrinkFactor` (0.6). Server clamps to [20m, current] — shrink can NEVER grow the
+  circle (lobby radius controls handle resizing up; `host:config` boundary has no
+  phase gate if the host truly needs mid-game growth). Referee ⭕ button now opens
+  an amount panel: −10%/−25%/−50% presets (with computed target shown) + exact-meters
+  input. Dev engine mirrors the clamp.
 - **Wake lock hardened** (2026-07-09): previously only the Ready tap requested it,
   and the visibility re-acquire only fired if the FIRST request had succeeded. Now:
   `wakeLockWanted` flag → every return-to-foreground retries (Low Power Mode denials

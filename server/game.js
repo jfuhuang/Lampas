@@ -333,18 +333,31 @@ export class Game {
 
   // ── Curveballs ───────────────────────────────────────────────────────
 
-  /** Host-triggered event: sound | torch | shrink. */
-  trigger(type) {
+  /**
+   * Host-triggered event: sound | torch | shrink | reveal.
+   * Shrink accepts an amount: `opts.radiusM` (absolute target) beats
+   * `opts.factor` (multiplier) beats the default `settings.shrinkFactor`.
+   * Always clamped to [20m, current radius] — a "shrink" can never grow
+   * the circle (the lobby radius controls handle resizing up).
+   */
+  trigger(type, opts = {}) {
     if (!EVENT_TYPES.includes(type)) return;
     if (this.phase !== 'seek' && this.phase !== 'hide') return;
 
     if (type === 'shrink') {
       if (!this.boundary) return;
       const oldR = this.boundary.radiusM;
-      this.boundary.radiusM = Math.max(
-        20,
-        Math.round(this.boundary.radiusM * this.settings.shrinkFactor),
-      );
+      let newR;
+      if (Number.isFinite(+opts.radiusM) && +opts.radiusM > 0) {
+        newR = +opts.radiusM;
+      } else {
+        const factor =
+          Number.isFinite(+opts.factor) && +opts.factor > 0 && +opts.factor < 1
+            ? +opts.factor
+            : this.settings.shrinkFactor;
+        newR = oldR * factor;
+      }
+      this.boundary.radiusM = Math.min(oldR, Math.max(20, Math.round(newR)));
       this.logEvent('event', `SHRINK: radius ${oldR}m → ${this.boundary.radiusM}m`);
       this.emit('event:shrink', { boundary: this.boundary });
     } else {
