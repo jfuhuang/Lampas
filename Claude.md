@@ -240,6 +240,25 @@ the code as it exists — keep this section updated when the code changes.
   original WebAudio square-wave siren; swap the mp3 to change the sound).
   `unlockAudio()` (lobby Ready tap) is still required — it satisfies the mobile
   autoplay gesture rule that also gates HTMLAudio playback.
+- **Wake lock hardened** (2026-07-09): previously only the Ready tap requested it,
+  and the visibility re-acquire only fired if the FIRST request had succeeded. Now:
+  `wakeLockWanted` flag → every return-to-foreground retries (Low Power Mode denials
+  are transient), and GameContext requests it automatically whenever phase is
+  hide/seek (no gesture needed for the Wake Lock API) — covers players who skipped
+  Ready or reloaded mid-game. Hard limit: power button still sleeps the phone; wake
+  lock only stops idle-timeout dimming.
+- **PWA** (2026-07-09): `vite-plugin-pwa` (`registerType: 'autoUpdate'` — load-bearing,
+  phones must never serve a stale bundle after a redeploy). Manifest: standalone,
+  portrait, night theme, icons from `client/public/lampas-icon.{png,svg}` (user-made,
+  400×400). Workbox: app-shell precache + CacheFirst map tiles (OSM/OpenTopoMap/Esri,
+  400 entries / 7 days) — instant paint on park LTE and after iOS tab eviction;
+  `navigateFallbackDenylist` excludes `/socket.io`. iOS metas in index.html (Safari
+  ignores manifest for those). NOTE: PWA adds no background execution — persistence
+  is still resync-on-wake; the SW just makes the reload instant.
+- **iOS torch WORKS** (2026-07-09, field-tested by user): modern iOS Safari (17.4+)
+  supports the `torch` constraint. Constraint #1's "iOS cannot" is outdated for
+  current devices. No code change was needed — `enableTorch()` was always
+  platform-agnostic (probe + verify). Screen-flash remains the fallback for old iOS.
 - **Forced boundary tag REMOVED** (2026-07-09): GPS too janky in the field — phantom
   out-of-bounds readings were auto-catching teams. Boundary is now **warn-only**:
   one warning per excursion (`outsideSince` dedupes; resets when back inside and at

@@ -47,6 +47,11 @@ One URL, nothing to coordinate, no database — state lives in memory for one ni
 New players: the **`/how`** page is a full tutorial. The host can show a **QR
 code** in the lobby (Invite players section) so phones join by scanning.
 
+**Install it**: Lampas is a PWA — Android Chrome offers "Install app"; on iOS use
+Safari → Share → "Add to Home Screen". Installed, it runs fullscreen (no browser
+chrome to fat-finger mid-game) and reloads instantly from cache, including map
+tiles for the area you've already viewed.
+
 ---
 
 ## Quick start
@@ -136,7 +141,7 @@ as a static site pointed at a remote server:
 
 | Constraint | How Lampas handles it |
 |---|---|
-| iOS Safari has **no torch API** | Torch event = full-screen white flash on every phone (screen *is* the lamp); Android Chrome additionally gets the real camera torch as a bonus |
+| Torch API support varies | Torch event = full-screen white flash on every phone (screen *is* the lamp, guaranteed); Android Chrome and modern iOS Safari (17.4+) additionally fire the real camera torch — the code probes any platform and verifies the light actually lit |
 | The app **can't see a flashlight beam** | Catches are human-adjudicated: the caught hider taps "I'm caught" (with confirmation), or the referee tags manually. Seekers cannot tag |
 | GPS is **~5–15 m accurate** outdoors | Boundary is a circle only, with a 10 m noise margin. Out-of-bounds triggers **warnings only** — no automatic penalty (GPS too janky to auto-tag on); the referee adjudicates. No mechanic needs sub-10 m precision |
 | Audio needs a **user gesture** to unlock | The lobby "Ready" tap unlocks the AudioContext; `navigator.vibrate()` is the Android backup for silent iPhones |

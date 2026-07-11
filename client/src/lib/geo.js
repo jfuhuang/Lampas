@@ -74,24 +74,35 @@ export function getCurrentPosition() {
 // ── Wake lock ──────────────────────────────────────────────────────────
 
 let wakeLock = null;
+let wakeLockWanted = false; // once anyone asks, keep re-trying on visibility
 
-/** Keep the screen on. Re-acquired automatically when the tab is re-shown. */
+/**
+ * Keep the screen on (Screen Wake Lock API — Chrome, iOS Safari 16.4+).
+ * No user gesture required, but the page must be visible. Re-acquired
+ * automatically whenever the tab returns to the foreground — including
+ * after an earlier FAILED attempt (Low Power Mode denials are transient).
+ *
+ * Hard limit no web API crosses: the power button / OS still sleeps the
+ * phone; wake lock only stops the idle-timeout dimming.
+ */
 export async function requestWakeLock() {
+  wakeLockWanted = true;
   if (!('wakeLock' in navigator)) return false;
   try {
     wakeLock = await navigator.wakeLock.request('screen');
     return true;
   } catch {
-    return false; // low battery / permission — non-fatal
+    return false; // low battery / Low Power Mode — retried on next visibility
   }
 }
 
 document.addEventListener('visibilitychange', () => {
   // Wake locks are released on background; re-grab on return.
-  if (document.visibilityState === 'visible' && wakeLock !== null) {
+  if (document.visibilityState === 'visible' && wakeLockWanted) {
     requestWakeLock();
   }
 });
+void wakeLock;
 
 // ── Audio ──────────────────────────────────────────────────────────────
 

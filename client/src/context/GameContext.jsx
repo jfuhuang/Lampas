@@ -14,6 +14,7 @@ import {
   vibrate,
   enableTorch,
   disableTorch,
+  requestWakeLock,
 } from '../lib/geo.js';
 
 /**
@@ -205,6 +206,9 @@ export function GameProvider({ children }) {
   const phase = game?.phase ?? 'lobby';
   useEffect(() => {
     if (!joined || (phase !== 'hide' && phase !== 'seek')) return undefined;
+    // Safety net for players who skipped Ready or reloaded mid-game: the
+    // Wake Lock API needs no gesture, so grab it whenever play is live.
+    requestWakeLock();
     const stop = startPositionStream(
       (pos) => {
         setMyPos(pos); // local echo for the player boundary map
