@@ -125,59 +125,56 @@ test('seek timer expiry: surviving hiders win on time', () => {
   assert.equal(over.payload.reason, 'time');
 });
 
-test('boundary: warning fires, grace expiry force-tags the team', () => {
+test('boundary: warns once per excursion, NEVER force-tags (GPS too janky)', () => {
   const { game, events } = makeGame();
   const { h1 } = setupTwoTeams(game);
-  game.configure({
-    boundary: { center: { lat: 51.5, lng: -0.12 }, radiusM: 100 },
-    settings: { graceSeconds: 30 },
-  });
+  game.configure({ boundary: { center: { lat: 51.5, lng: -0.12 }, radiusM: 100 } });
   game.startPhase('seek');
   game.updatePosition(h1.id, { lat: 51.51, lng: -0.12 }); // ~1.1km out
   const t0 = Date.now();
   game.tick(t0);
-  assert.ok(events.some((e) => e.event === 'boundary:warning'));
-  assert.equal(game.teams.get(h1.teamId).role, 'hider'); // grace not expired
-  game.tick(t0 + 31_000);
-  assert.equal(game.teams.get(h1.teamId).role, 'seeker'); // forced tag
+  const warnings = () => events.filter((e) => e.event === 'boundary:warning');
+  assert.ok(warnings().length >= 1, 'warning fired');
+  const afterFirst = warnings().length;
+  game.tick(t0 + 300_000); // 5 minutes outside — still no penalty
+  assert.equal(game.teams.get(h1.teamId).role, 'hider', 'no forced tag ever');
+  assert.equal(warnings().length, afterFirst, 'no warning spam while still out');
 });
 
-test('returning inside boundary clears the grace clock', () => {
-  const { game } = makeGame();
+test('boundary: re-warns on a NEW excursion after coming back inside', () => {
+  const { game, events } = makeGame();
   const { h1 } = setupTwoTeams(game);
-  game.configure({
-    boundary: { center: { lat: 51.5, lng: -0.12 }, radiusM: 100 },
-    settings: { graceSeconds: 30 },
-  });
+  game.configure({ boundary: { center: { lat: 51.5, lng: -0.12 }, radiusM: 100 } });
   game.startPhase('seek');
+  const warnings = () =>
+    events.filter((e) => e.event === 'boundary:warning' && e.scope?.room === h1.teamId).length;
   game.updatePosition(h1.id, { lat: 51.51, lng: -0.12 });
-  const t0 = Date.now();
-  game.tick(t0);
+  game.tick(Date.now());
+  assert.equal(warnings(), 1);
   game.updatePosition(h1.id, { lat: 51.5, lng: -0.12 }); // back inside
-  game.tick(t0 + 10_000);
+  game.tick(Date.now());
   game.updatePosition(h1.id, { lat: 51.51, lng: -0.12 }); // out again
-  game.tick(t0 + 31_000); // 31s after t0 but grace clock restarted
-  assert.equal(game.teams.get(h1.teamId).role, 'hider');
+  game.tick(Date.now());
+  assert.equal(warnings(), 2, 'fresh excursion → fresh warning');
 });
 
-test('hide-phase grace time does NOT roll into seek (no instant tag)', () => {
-  const { game } = makeGame();
+test('warning state resets at seek start (hide-phase warn does not suppress seek warn)', () => {
+  const { game, events } = makeGame();
   const { h1 } = setupTwoTeams(game);
   game.configure({
     boundary: { center: { lat: 51.5, lng: -0.12 }, radiusM: 100 },
-    settings: { graceSeconds: 30, hideSeconds: 60 },
+    settings: { hideSeconds: 60 },
   });
   game.startPhase('hide');
   game.updatePosition(h1.id, { lat: 51.51, lng: -0.12 }); // way outside
-  const t0 = Date.now();
-  game.tick(t0); // warning during hide, outsideSince set
-  game.startPhase('seek');
-  game.tick(t0 + 40_000); // 40s later — would exceed grace if it carried over
-  assert.equal(
-    game.teams.get(h1.teamId).role,
-    'hider',
-    'grace clock must restart at seek start',
+  game.tick(Date.now()); // warned during hide
+  game.startPhase('seek'); // resets outsideSince
+  game.tick(Date.now());
+  const teamWarnings = events.filter(
+    (e) => e.event === 'boundary:warning' && e.scope?.room === h1.teamId,
   );
+  assert.equal(teamWarnings.length, 2, 'warned again in seek');
+  assert.equal(game.teams.get(h1.teamId).role, 'hider', 'and of course no tag');
 });
 
 test('stale positions (>60s) are excluded from the team centroid', () => {
@@ -256,6 +253,24 @@ test('deleteTeam: lobby-only, removes team + members, spares host', () => {
   // Mid-game refused
   game.startPhase('seek');
   assert.equal(game.removeTeam([...game.teams.keys()][0]), null);
+});
+
+test('stats: only when over, survivors first, caughtBy labels, no seeker teams', () => {
+  const { game } = makeGame();
+  const { h1, h2 } = setupTwoTeams(game);
+  game.startPhase('seek');
+  assert.equal(game.statsPayload(), null, 'no stats mid-game');
+  assert.equal('stats' in game.baseState(), false);
+  game.tagPlayer(h1.id, h1.id); // self-caught → Foxes win, game over
+  const stats = game.playerState(h2.id).stats;
+  assert.ok(stats, 'stats present when over');
+  assert.equal(stats.teams.length, 2, 'starting-seeker team excluded');
+  assert.equal(stats.teams[0].name, 'Foxes', 'survivor sorted first');
+  assert.equal(stats.teams[0].winner, true);
+  assert.equal(stats.teams[0].survived, true);
+  const owls = stats.teams.find((t) => t.name === 'Owls');
+  assert.equal(owls.caughtBy, 'self');
+  assert.ok(stats.timeline.some((e) => e.type === 'over'));
 });
 
 test('reveal curveball: players see positions only while active', () => {

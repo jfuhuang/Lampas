@@ -17,6 +17,23 @@
 export const DEFAULT_CENTER = { lat: 39.9865, lng: -105.9333 };
 export const DEFAULT_ZOOM = 15;
 
+/**
+ * Great-circle distance in meters (same formula as server/geo.js — kept
+ * separate because that file must stay browser-free and this one touches
+ * browser globals). Used for the private edge-heartbeat: distance of MY
+ * position to the boundary center, computed entirely on-device.
+ */
+export function haversine(a, b) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const h =
+    sinLat * sinLat + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sinLng * sinLng;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
+}
+
 // ── Geolocation ────────────────────────────────────────────────────────
 
 /**

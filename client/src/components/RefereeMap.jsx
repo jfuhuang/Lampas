@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { DEFAULT_CENTER, DEFAULT_ZOOM } from '../lib/geo.js';
+import { addStyleControl } from '../lib/mapStyles.js';
 
 /**
  * Live Leaflet map for the host/referee ONLY — the one place player
@@ -27,10 +28,7 @@ export default function RefereeMap({ positions, boundary, phase, onSetCenter }) 
       [DEFAULT_CENTER.lat, DEFAULT_CENTER.lng],
       DEFAULT_ZOOM,
     );
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(map);
+    addStyleControl(map); // Night / Terrain / Satellite picker
     layerRef.current = L.layerGroup().addTo(map);
     map.on('click', (e) => {
       // Boundary placement only makes sense before the game starts.

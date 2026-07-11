@@ -17,7 +17,6 @@ export const EVENT_TYPES = ['sound', 'torch', 'shrink', 'reveal'];
 const DEFAULT_SETTINGS = {
   hideSeconds: 180, // hiders get 3 min to hide
   seekSeconds: 1200, // 20 min round cap
-  graceSeconds: 30, // time allowed outside boundary before penalty
   shrinkFactor: 0.6, // boundary radius multiplier per shrink event
   eventSeconds: 15, // how long sound/torch events stay active
   revealSeconds: 20, // how long the all-positions reveal lasts
@@ -58,6 +57,7 @@ export class Game {
     this.activeEvent = null; // { type, endsAt }
     this.winnerTeamId = null;
     this.startedAt = null;
+    this.seekStartedAt = null;
     this.initialHiderTeams = 0;
   }
 
@@ -108,6 +108,7 @@ export class Game {
         name: cleanName,
         role: 'hider', // 'hider' | 'seeker'
         caughtAt: null, // set when converted during seek phase
+        caughtBy: null, // stats label: self / referee (name) / boundary penalty
       };
       this.teams.set(team.id, team);
     }
@@ -195,6 +196,7 @@ export class Game {
           t.role = 'hider';
           t.caughtAt = null;
         }
+        t.caughtBy = null;
       }
       for (const p of this.players.values()) p.outsideSince = null;
     } else if (phase === 'hide') {
@@ -205,6 +207,7 @@ export class Game {
       // Snapshot for the win rule: >1 hider team → end at 1 left; exactly
       // one hider team from the start → play until 0.
       this.initialHiderTeams = this.hiderTeams().length;
+      this.seekStartedAt = Date.now(); // stats baseline: survival is measured from here
       // Fresh grace clocks: time spent outside during the HIDE phase must
       // not roll into the seek penalty (caused instant premature tags).
       for (const p of this.players.values()) p.outsideSince = null;
@@ -266,6 +269,7 @@ export class Game {
 
     team.role = 'seeker';
     team.caughtAt = Date.now();
+    team.caughtBy = null; // set below once the label is computed
     const by =
       source ??
       (byPlayerId === targetPlayerId
@@ -273,6 +277,7 @@ export class Game {
         : byPlayerId
           ? `referee (${this.players.get(byPlayerId)?.name})`
           : 'unknown');
+    team.caughtBy = by;
     const left = this.hiderTeams().length;
     this.logEvent(
       'tag',
@@ -403,20 +408,22 @@ export class Game {
           for (const m of members) m.outsideSince = null;
           continue;
         }
-        const firstOut = members.find((m) => m.outsideSince)?.outsideSince ?? null;
-        if (!firstOut) {
+        // NO automatic penalty: GPS is too janky to auto-tag on (removed
+        // 2026-07-09). Warnings only — once per excursion (outsideSince
+        // dedupes). The referee sees offenders on the map + log and tags
+        // manually if a team genuinely camps outside.
+        const alreadyWarned = members.some((m) => m.outsideSince);
+        if (!alreadyWarned) {
           for (const m of members) m.outsideSince = now;
           this.logEvent(
             'boundary',
-            `team ${team.name} OUTSIDE (${Math.round(distanceOutside(c, this.boundary))}m past) — ` +
-              `grace ${this.settings.graceSeconds}s started`,
+            `team ${team.name} OUTSIDE (${Math.round(distanceOutside(c, this.boundary))}m past) — warned`,
           );
           this.emit(
             'boundary:warning',
             {
               teamId: team.id,
               metersOutside: Math.round(distanceOutside(c, this.boundary)),
-              graceSeconds: this.settings.graceSeconds,
             },
             { room: team.id },
           );
@@ -425,14 +432,6 @@ export class Game {
             { teamId: team.id, teamName: team.name },
             { room: 'referees' },
           );
-        } else if (this.phase === 'seek' && now - firstOut >= this.settings.graceSeconds * 1000) {
-          // Grace expired → forced tag (whole team converts)
-          this.logEvent(
-            'boundary',
-            `team ${team.name} grace expired (${Math.round((now - firstOut) / 1000)}s outside) → forced tag`,
-          );
-          const anyMember = members[0];
-          if (anyMember) this.tagPlayer(anyMember.id, null, 'boundary penalty');
         }
       }
     }
@@ -440,9 +439,46 @@ export class Game {
 
   // ── Serialization ────────────────────────────────────────────────────
 
+  /**
+   * End-game stats: survival leaderboard + event timeline, derived from
+   * data we already track (caughtAt/caughtBy, seekStartedAt, the log).
+   * Meaningful only once the game is over.
+   */
+  statsPayload() {
+    if (this.phase !== 'over' || !this.seekStartedAt) return null;
+    const gameEnd = Math.max(
+      this.seekStartedAt,
+      ...[...this.teams.values()].map((t) => t.caughtAt ?? 0),
+      this.log.findLast?.((e) => e.type === 'over')?.at ?? Date.now(),
+    );
+    const teams = [...this.teams.values()]
+      .filter((t) => [...this.players.values()].some((p) => p.teamId === t.id))
+      // Leaderboard = teams that HID this round: caught ones (caughtAt set)
+      // or still-hiding survivors. Teams that started as seekers are
+      // excluded — "survived" would be meaningless for them.
+      .filter((t) => t.caughtAt !== null || t.role === 'hider')
+      .map((t) => {
+        const survivedTo = t.caughtAt ?? gameEnd;
+        return {
+          teamId: t.id,
+          name: t.name,
+          winner: t.id === this.winnerTeamId,
+          survived: t.caughtAt === null, // never caught
+          survivedSeconds: Math.max(0, Math.round((survivedTo - this.seekStartedAt) / 1000)),
+          caughtBy: t.caughtBy ?? null,
+        };
+      })
+      .sort((a, b) => b.survivedSeconds - a.survivedSeconds || (b.winner ? 1 : -1));
+    const timeline = this.log.filter(
+      (e) => e.at >= this.seekStartedAt && ['tag', 'event', 'over', 'boundary'].includes(e.type),
+    );
+    return { teams, timeline, seekStartedAt: this.seekStartedAt };
+  }
+
   /** Shared, non-sensitive core of the state. */
   baseState() {
     return {
+      ...(this.phase === 'over' ? { stats: this.statsPayload() } : {}),
       phase: this.phase,
       phaseEndsAt: this.phaseEndsAt,
       serverNow: Date.now(),

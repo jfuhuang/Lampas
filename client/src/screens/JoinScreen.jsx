@@ -134,7 +134,12 @@ export default function JoinScreen() {
             ← player join page
           </a>
         ) : (
-          <>Teammates: type the exact same team name. Refereeing? Go to /host.</>
+          <>
+            Teammates: type the exact same team name. Refereeing? Go to /host.{' '}
+            <a href="/how" className="text-lamp underline">
+              New? How to play →
+            </a>
+          </>
         )}
       </p>
     </div>

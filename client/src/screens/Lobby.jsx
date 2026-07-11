@@ -79,12 +79,14 @@ export default function Lobby() {
         <p className="text-center text-xs text-neutral-500">
           Ready also enables sound &amp; keeps your screen awake. Arrive charged — GPS eats battery.
         </p>
-        <button
-          onClick={logout}
-          className="mx-auto mt-1 px-3 py-2 text-xs font-semibold text-neutral-500 underline active:scale-95"
-        >
-          Log out (forget me on this phone)
-        </button>
+        <div className="mx-auto mt-1 flex items-center gap-4 text-xs font-semibold text-neutral-500">
+          <a href="/how" className="px-1 py-2 underline">
+            How to play
+          </a>
+          <button onClick={logout} className="px-1 py-2 underline active:scale-95">
+            Log out (forget me on this phone)
+          </button>
+        </div>
       </div>
     </div>
   );

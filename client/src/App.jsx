@@ -7,6 +7,7 @@ import HostView from './screens/HostView.jsx';
 import TorchOverlay from './components/TorchOverlay.jsx';
 import Toast from './components/Toast.jsx';
 import HiderTeamsBadge from './components/HiderTeamsBadge.jsx';
+import HowToPlay from './screens/HowToPlay.jsx';
 import DevApp from './dev/DevApp.jsx';
 
 // `?dev` swaps the whole app for the mock-driven dev view (dev/DevApp.jsx):
@@ -19,6 +20,8 @@ const DEV_MODE = new URLSearchParams(window.location.search).has('dev');
  */
 export default function App() {
   if (DEV_MODE) return <DevApp />;
+  // Static tutorial — no game state, reachable before joining.
+  if (window.location.pathname === '/how') return <HowToPlay />;
   return (
     <GameProvider>
       <Shell>

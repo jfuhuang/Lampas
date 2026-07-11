@@ -139,12 +139,12 @@ export function GameProvider({ children }) {
     };
     const onConverted = ({ teamName, caughtPlayerName }) =>
       showToast(`${caughtPlayerName} caught — team ${teamName} are now seekers!`, 'alert');
-    const onWarning = ({ metersOutside, graceSeconds }) => {
+    const onWarning = ({ metersOutside, teamName }) => {
       vibrate([200, 100, 200]);
       showToast(
         metersOutside != null
-          ? `OUT OF BOUNDS — ${metersOutside}m outside. Get back within ${graceSeconds}s!`
-          : 'A team is out of bounds',
+          ? `OUT OF BOUNDS — ${metersOutside}m outside. Get back inside!`
+          : `Team ${teamName ?? ''} is out of bounds`,
         'warn',
       );
     };

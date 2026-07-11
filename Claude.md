@@ -192,7 +192,7 @@ the code as it exists — keep this section updated when the code changes.
 | Server entry | `server/index.js` | Express + Socket.IO, serves `client/dist`, SPA fallback, `/healthz`, 2s tick loop, `connectionStateRecovery` (2 min) |
 | State machine | `server/game.js` | `Game` class, transport-agnostic (emits via callback), phases `lobby→hide→seek→over`, curveballs, forced tag on grace expiry, win check |
 | Geometry | `server/geo.js` | Pure: `haversine`, `centroid`, `insideBoundary` (10m GPS margin), `distanceOutside` |
-| Unit tests | `server/geo.test.js`, `server/game.test.js` | `npm test` (node:test), 30 tests: geometry, credential-based host, team reuse, tag/convert, win rules (one-left / single-team / phantom teams), timers, boundary grace, privacy of positions, referee `you`, kick, reset |
+| Unit tests | `server/geo.test.js`, `server/game.test.js` | `npm test` (node:test), 31 tests: geometry, credential-based host, team reuse, tag/convert, win rules (one-left / single-team / phantom teams), timers, boundary grace, privacy of positions, referee `you`, kick, reset |
 | Client root | `client/src/App.jsx` | Thin: mounts `GameProvider`, routes by role, renders overlays |
 | Game context | `client/src/context/GameContext.jsx` | Owns socket subscription, state mirror, creds, position streaming, overlays/toasts. Consumed via `useGame()` / `useToast()` hooks — screens take NO game props |
 | Screens | `client/src/screens/` | `JoinScreen` (doubles as `/host` password login), `Lobby`, `HiderView` ("I'm caught" + collapsed boundary map), `SeekerView` (read-only hunt list + boundary map), `HostView` (plain referee for teamless hosts; 👑/🔦 tabs only if host has a team), `RefereeView` |
@@ -240,6 +240,36 @@ the code as it exists — keep this section updated when the code changes.
   original WebAudio square-wave siren; swap the mp3 to change the sound).
   `unlockAudio()` (lobby Ready tap) is still required — it satisfies the mobile
   autoplay gesture rule that also gates HTMLAudio playback.
+- **Forced boundary tag REMOVED** (2026-07-09): GPS too janky in the field — phantom
+  out-of-bounds readings were auto-catching teams. Boundary is now **warn-only**:
+  one warning per excursion (`outsideSince` dedupes; resets when back inside and at
+  seek start), logged + shown to the team and referee. `graceSeconds` setting
+  deleted. Enforcement is human: referee sees offenders on the map/log and tags
+  manually. The `'boundary penalty'` caughtBy label can no longer occur.
+- **Map style picker** (2026-07-09): both maps (RefereeMap + PlayerMap) get a Leaflet
+  base-layer control via `lib/mapStyles.js` — Night (dark-filtered OSM; filter moved
+  from global `.leaflet-tile` CSS to a `.tiles-night` class so other styles keep
+  natural colors), Terrain (OpenTopoMap — contours + building/POI names, native z17
+  upscaled to 19), Satellite (Esri World Imagery). All keyless/free with attribution.
+  Choice persists in `localStorage` (`lampas.mapStyle`).
+- **Edge heartbeat** (2026-07-08): hider phone vibrates ([100,80,100], throttled 10s)
+  + amber warning line when own GPS is within 20m of the boundary edge or outside.
+  Entirely on-device (`haversine` added to client `lib/geo.js` — duplicated from
+  server/geo.js on purpose, that file stays browser-free) using `myPos`; zero server
+  involvement, privacy intact.
+- **QR invite** (2026-07-08): referee lobby "0 · Invite players" section renders a QR
+  of `location.origin` via the `qrcode` npm package (local data-URL, no CDN/CSP
+  issues). Collapsible.
+- **End-game stats** (2026-07-08): `Game.statsPayload()` — survival leaderboard
+  (survivedSeconds from `seekStartedAt`, `caughtBy` label stored on the team at tag
+  time, winners flagged, starting-seeker teams excluded) + timeline (log entries
+  since seek start). Shipped in `baseState()` only when phase `over`, so players AND
+  referee get it. Rendered by shared `components/GameStats.jsx` in GameOver + referee
+  over panel; dev engine mimics it.
+- **Tutorial page** (2026-07-08): static `/how` route (`screens/HowToPlay.jsx`,
+  gated in App before the join screen like `/host`) — rules, roles, phases,
+  curveballs, honor-system catching, boundary rules, phone prep. Linked from
+  JoinScreen footer + Lobby footer.
 - **Reveal curveball** (2026-07-08): 4th host-triggered event `reveal` (📍 button;
   `revealSeconds` setting, default 20). While active, `playerState()` includes ALL
   positions (`positionsPayload()`, shared with refereeState) — seekers AND hiders see
@@ -344,7 +374,7 @@ npm run dev:client  # vite :5173 (run alongside dev)
 
 ### Verified
 
-- `npm test`: 30/30 pass.
+- `npm test`: 31/31 pass.
 - `vite build`: clean (~115 kB gzip JS).
 - Scripted end-to-end socket smoke tests: credential host login (teamless), config,
   team roles, hide→seek auto-advance, out-of-bounds warning → forced tag after grace,

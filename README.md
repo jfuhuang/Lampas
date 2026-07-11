@@ -37,8 +37,15 @@ One URL, nothing to coordinate, no database — state lives in memory for one ni
    - 📍 **Reveal** — everyone's live location appears on every player's map
      for ~20 seconds (the one sanctioned privacy breach — spice)
 5. **Win** — last un-caught hider team standing. If the seek timer runs out,
-   surviving hiders win. Teams that drift outside the boundary get a warning,
-   then are auto-caught after a grace period.
+   surviving hiders win. Teams that drift outside the boundary get a warning
+   (no automatic penalty — the referee sees offenders and tags manually if
+   needed). Hider phones also buzz privately when within ~20m of the edge
+   (computed on-device — nothing sent anywhere).
+6. **Game over** — everyone sees the survival leaderboard (who lasted how long,
+   how each team got caught) and an event timeline.
+
+New players: the **`/how`** page is a full tutorial. The host can show a **QR
+code** in the lobby (Invite players section) so phones join by scanning.
 
 ---
 
@@ -131,7 +138,7 @@ as a static site pointed at a remote server:
 |---|---|
 | iOS Safari has **no torch API** | Torch event = full-screen white flash on every phone (screen *is* the lamp); Android Chrome additionally gets the real camera torch as a bonus |
 | The app **can't see a flashlight beam** | Catches are human-adjudicated: the caught hider taps "I'm caught" (with confirmation), or the referee tags manually. Seekers cannot tag |
-| GPS is **~5–15 m accurate** outdoors | Boundary is a circle only, with a 10 m noise margin and a 30 s grace period before penalties. No mechanic needs sub-10 m precision |
+| GPS is **~5–15 m accurate** outdoors | Boundary is a circle only, with a 10 m noise margin. Out-of-bounds triggers **warnings only** — no automatic penalty (GPS too janky to auto-tag on); the referee adjudicates. No mechanic needs sub-10 m precision |
 | Audio needs a **user gesture** to unlock | The lobby "Ready" tap unlocks the AudioContext; `navigator.vibrate()` is the Android backup for silent iPhones |
 | Screens sleep, sockets drop | Screen Wake Lock API (re-acquired on tab return); clients **re-sync full state on every reconnect** instead of relying on event delivery |
 | Live positions would ruin the game | Positions go to the server and the **referee map only**. Hiders and seekers get a boundary map showing the circle and **their own dot only** (local GPS echo — other players' locations never reach their phones) |
@@ -223,7 +230,8 @@ lampas/
 1. Deploy (or tunnel) so you have an **HTTPS** URL.
 2. Everyone arrives with a **charged phone** (GPS + wake lock + socket is hungry).
 3. Host logs in at `/host` with the host password (default `pass`; set
-   `HOST_PASSWORD` on the server for a public deploy); players join with team names.
+   `HOST_PASSWORD` on the server for a public deploy); players join with team
+   names — scan the lobby QR code, or read `/how` first if new.
 4. Host: tap the map (or "Center on me") to place the boundary, set the radius
    slider, set timers, toggle the seeker team, wait for green ✓ Ready on everyone.
 5. Grant **location permission** when prompted; iPhone users take phones off silent.

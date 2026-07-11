@@ -37,8 +37,17 @@ body {
   width: 100%;
   background: #111;
 }
-.leaflet-tile {
+/* Dark filter ONLY for the "Night" base layer (see lib/mapStyles.js) —
+   Terrain/Satellite need their natural colors for labels & contours. */
+.tiles-night {
   filter: brightness(0.7) contrast(1.1) saturate(0.6);
+}
+
+/* Layer picker readable on the dark theme */
+.leaflet-control-layers {
+  background: #16161f;
+  color: #e5e7eb;
+  border: 1px solid #3f3f46;
 }
 
 /* Full-screen torch flash — max brightness so the SCREEN acts as a lamp on iOS */

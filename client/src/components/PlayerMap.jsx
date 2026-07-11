@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { DEFAULT_CENTER, DEFAULT_ZOOM } from '../lib/geo.js';
+import { addStyleControl } from '../lib/mapStyles.js';
 
 /**
  * Boundary map for HIDERS and SEEKERS: the amber circle + YOUR OWN blue
@@ -61,7 +62,7 @@ function MapCanvas({ boundary, myPos, others }) {
       zoomControl: false,
       attributionControl: false,
     }).setView([DEFAULT_CENTER.lat, DEFAULT_CENTER.lng], DEFAULT_ZOOM);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    addStyleControl(map); // Night / Terrain / Satellite picker
     othersLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     return () => map.remove();

@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { socket } from '../lib/socket.js';
 import { getCurrentPosition, unlockAudio, requestWakeLock } from '../lib/geo.js';
+import QRCode from 'qrcode';
 import Countdown from '../components/Countdown.jsx';
 import RefereeMap from '../components/RefereeMap.jsx';
+import GameStats from '../components/GameStats.jsx';
 import { useGame, useToast } from '../context/GameContext.jsx';
 import { TeamList } from './Lobby.jsx';
 
@@ -76,18 +78,21 @@ export default function RefereeView() {
         )}
 
         {phase === 'over' && (
-          <div className="rounded-xl border border-neutral-800 bg-panel p-4 text-center">
-            <div className="text-4xl">🏆</div>
-            <p className="mt-1 text-lg font-bold">
-              {game.winnerTeamName ? `${game.winnerTeamName} win!` : 'Seekers caught everyone!'}
-            </p>
-            <button
-              onClick={() => socket.emit('host:reset')}
-              className="mt-3 w-full rounded-xl bg-lamp px-4 py-3 font-black text-night active:scale-95"
-            >
-              Back to lobby
-            </button>
-          </div>
+          <>
+            <div className="rounded-xl border border-neutral-800 bg-panel p-4 text-center">
+              <div className="text-4xl">🏆</div>
+              <p className="mt-1 text-lg font-bold">
+                {game.winnerTeamName ? `${game.winnerTeamName} win!` : 'Seekers caught everyone!'}
+              </p>
+              <button
+                onClick={() => socket.emit('host:reset')}
+                className="mt-3 w-full rounded-xl bg-lamp px-4 py-3 font-black text-night active:scale-95"
+              >
+                Back to lobby
+              </button>
+            </div>
+            <GameStats stats={game.stats} />
+          </>
         )}
 
         <PlayerRoster game={game} />
@@ -132,6 +137,7 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
 
   return (
     <>
+      <InviteQR />
       <Section title="1 · Boundary (circle)">
         <div className="flex gap-2">
           <button onClick={onUseMyLocation} className="flex-1 rounded-lg bg-neutral-800 px-3 py-3 text-sm font-bold active:scale-95">
@@ -224,6 +230,41 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
         🏁 Start hide phase
       </button>
     </>
+  );
+}
+
+/** QR of the game URL — players scan instead of typing at night. Generated
+ *  locally by the `qrcode` package (no network, CSP-safe data URL). */
+function InviteQR() {
+  const [dataUrl, setDataUrl] = useState(null);
+  const [open, setOpen] = useState(false);
+  const url = window.location.origin;
+
+  useEffect(() => {
+    QRCode.toDataURL(url, { width: 360, margin: 2 })
+      .then(setDataUrl)
+      .catch(() => setDataUrl(null));
+  }, [url]);
+
+  return (
+    <Section title="0 · Invite players">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full rounded-lg bg-neutral-800 px-3 py-3 text-sm font-bold active:scale-95"
+      >
+        {open ? 'Hide QR code' : '📱 Show QR code to join'}
+      </button>
+      {open && dataUrl && (
+        <div className="mt-3 flex flex-col items-center gap-2">
+          <img
+            src={dataUrl}
+            alt={`QR code for ${url}`}
+            className="w-full max-w-[240px] rounded-xl"
+          />
+          <p className="break-all text-center text-xs text-neutral-400">{url}</p>
+        </div>
+      )}
+    </Section>
   );
 }
 

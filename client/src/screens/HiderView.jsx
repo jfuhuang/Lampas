@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { socket } from "../lib/socket.js";
+import { haversine, vibrate } from "../lib/geo.js";
 import Countdown from "../components/Countdown.jsx";
 import PlayerMap from "../components/PlayerMap.jsx";
+import GameStats from "../components/GameStats.jsx";
 import { useGame } from "../context/GameContext.jsx";
+
+const EDGE_BAND_M = 20; // heartbeat kicks in this far inside the edge
+const HEARTBEAT_THROTTLE_MS = 10_000;
 
 /**
  * Hider screen: phase countdown, minimal status, and the "I'm caught"
@@ -12,8 +17,29 @@ import { useGame } from "../context/GameContext.jsx";
 export default function HiderView() {
   const { game, myPos } = useGame();
   const [confirming, setConfirming] = useState(false);
+  const lastBeat = useRef(0);
   const { phase, phaseEndsAt, serverNow, you } = game;
   const hiderTeams = game.teams.filter((t) => t.role === "hider").length;
+
+  // Edge heartbeat: MY distance to the edge, computed entirely on-device
+  // (myPos is the local GPS echo — no server data, privacy intact).
+  const boundary = game.boundary;
+  const edgeDistanceM =
+    myPos && boundary?.center
+      ? Math.round(boundary.radiusM - haversine(myPos, boundary.center))
+      : null; // meters INSIDE the edge; negative = outside
+  const nearEdge =
+    edgeDistanceM !== null &&
+    edgeDistanceM < EDGE_BAND_M &&
+    (phase === "hide" || phase === "seek");
+
+  useEffect(() => {
+    if (!nearEdge) return;
+    const now = Date.now();
+    if (now - lastBeat.current < HEARTBEAT_THROTTLE_MS) return;
+    lastBeat.current = now;
+    vibrate([100, 80, 100]);
+  }, [nearEdge, myPos]);
 
   if (phase === "over") return <GameOver />;
 
@@ -33,11 +59,19 @@ export default function HiderView() {
         <p className="text-sm text-neutral-400">
           {phase === "hide"
             ? "Get inside the boundary and hide. Seekers are frozen at base."
-            : "Seekers are hunting. Stay inside the boundary — outside too long = auto-caught."}
+            : "Seekers are hunting. Stay inside the boundary — the referee sees who drifts out."}
         </p>
         <p className="mt-2 text-lg font-bold text-emerald-300">
           {hiderTeams} hider team{hiderTeams === 1 ? "" : "s"} still free
         </p>
+        {nearEdge && (
+          <p className="mt-2 animate-pulse text-sm font-bold text-amber-400">
+            ⚠{" "}
+            {edgeDistanceM < 0
+              ? "OUTSIDE the boundary — get back in!"
+              : `Near the edge — ${edgeDistanceM}m of boundary left`}
+          </p>
+        )}
       </div>
 
       {/* Collapsed by default — a lit screen gives away a hiding spot. */}
@@ -117,6 +151,7 @@ export function GameOver() {
           : "Seekers caught everyone!"}
       </p>
       <p className="text-sm text-neutral-400">Return to Blue Ridge!</p>
+      <GameStats stats={game.stats} />
     </div>
   );
 }

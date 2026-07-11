@@ -15,7 +15,6 @@ const id = (p) => `dev_${p}${n++}`;
 const DEFAULT_SETTINGS = {
   hideSeconds: 90,
   seekSeconds: 600,
-  graceSeconds: 30,
   shrinkFactor: 0.6,
   eventSeconds: 15,
   boundaryMarginM: 10,
@@ -95,6 +94,7 @@ function setPhase(s, phase) {
   else if (phase === 'seek') {
     s.phaseEndsAt = Date.now() + s.settings.seekSeconds * 1000;
     s.initialHiderTeams = s.teams.filter((t) => t.role === 'hider' && t.players.length).length;
+    s.seekStartedAt = Date.now();
   } else s.phaseEndsAt = null;
   if (phase === 'lobby') {
     s.winnerTeamId = null;
@@ -261,6 +261,28 @@ export function toGamePayload(state) {
     positions:
       p?.isHost || state.activeEvent?.type === 'reveal'
         ? state.positions.map((pos) => ({ ...pos, role: roleOf(pos.teamId) }))
+        : undefined,
+    // Minimal stats mimic so the dev `over` screen previews GameStats.
+    stats:
+      state.phase === 'over' && state.seekStartedAt
+        ? {
+            seekStartedAt: state.seekStartedAt,
+            timeline: [],
+            teams: state.teams
+              .filter((t) => t.players.length && (t.caughtAt !== null || t.role === 'hider'))
+              .map((t) => ({
+                teamId: t.id,
+                name: t.name,
+                winner: t.id === state.winnerTeamId,
+                survived: t.caughtAt === null,
+                survivedSeconds: Math.max(
+                  0,
+                  Math.round(((t.caughtAt ?? Date.now()) - state.seekStartedAt) / 1000),
+                ),
+                caughtBy: t.caughtAt ? 'self' : null,
+              }))
+              .sort((a, b) => b.survivedSeconds - a.survivedSeconds),
+          }
         : undefined,
     you: p
       ? {
