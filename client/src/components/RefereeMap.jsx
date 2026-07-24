@@ -11,11 +11,12 @@ import { addStyleControl } from '../lib/mapStyles.js';
  * - greyed dot = phone quiet (disconnected / no recent position)
  * - amber circle = boundary; in the lobby, tapping the map moves its center
  */
-export default function RefereeMap({ positions, boundary, phase, onSetCenter }) {
+export default function RefereeMap({ positions, boundary, phase, onSetCenter, shrinkPreviewM }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null); // markers redrawn each render
   const circleRef = useRef(null);
+  const previewCircleRef = useRef(null); // dashed: where the next auto-shrink would land
   const centeredOnce = useRef(false);
   const onSetCenterRef = useRef(onSetCenter);
   onSetCenterRef.current = onSetCenter;
@@ -62,6 +63,26 @@ export default function RefereeMap({ positions, boundary, phase, onSetCenter }) 
       }
     }
   }, [boundary?.center?.lat, boundary?.center?.lng, boundary?.radiusM]);
+
+  // Auto-shrink preview — dashed, no fill, same center. Random among 4
+  // curveball types, so this is "if the next one is a shrink," not a timer.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (previewCircleRef.current) {
+      previewCircleRef.current.remove();
+      previewCircleRef.current = null;
+    }
+    if (boundary?.center && shrinkPreviewM) {
+      previewCircleRef.current = L.circle([boundary.center.lat, boundary.center.lng], {
+        radius: shrinkPreviewM,
+        color: '#ef4444',
+        weight: 2,
+        dashArray: '6 6',
+        fill: false,
+      }).addTo(map);
+    }
+  }, [boundary?.center?.lat, boundary?.center?.lng, shrinkPreviewM]);
 
   // Player dots
   useEffect(() => {

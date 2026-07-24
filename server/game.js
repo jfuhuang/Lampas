@@ -21,6 +21,8 @@ const DEFAULT_SETTINGS = {
   eventSeconds: 15, // how long sound/torch events stay active
   revealSeconds: 20, // how long the all-positions reveal lasts
   boundaryMarginM: 10, // GPS-noise margin added to the radius
+  autoEvents: 0, // 1 = referee panel fires random curveballs on a timer
+  autoEventIntervalSeconds: 90, // gap between auto-fired curveballs
 };
 
 let nextId = 1;
@@ -55,6 +57,7 @@ export class Game {
     this.players = new Map(); // playerId → player
     this.teams = new Map(); // teamId → team
     this.activeEvent = null; // { type, endsAt }
+    this.nextAutoEventAt = null; // when autoEvents is on: next curveball timestamp
     this.winnerTeamId = null;
     this.startedAt = null;
     this.seekStartedAt = null;
@@ -85,16 +88,30 @@ export class Game {
     if (name) player.name = String(name).slice(0, 24);
     // Host is decided by credentials (checked in index.js), never by join order.
     player.isHost = !!isHost;
+    // Mid-game, a typed team name only attaches to a team that already
+    // exists (no spinning up a fresh hider/seeker team once boundary/roles
+    // are locked in) — see joinTeam. Leaves teamId null otherwise so the
+    // client falls back to the team-picker screen (App.jsx Router).
     if (teamName) this.joinTeam(player.id, teamName);
     this.logEvent(
       'join',
       `${player.name}${player.isHost ? ' (HOST)' : ''} joined` +
-        (player.teamId ? ` team ${this.teams.get(player.teamId)?.name}` : ''),
+        (player.teamId
+          ? ` team ${this.teams.get(player.teamId)?.name}`
+          : this.phase !== 'lobby'
+            ? ' — no team yet, picking'
+            : ''),
     );
     return player;
   }
 
-  /** Create team on demand; move player into it. */
+  /**
+   * Move a player into a team, creating it on demand — LOBBY ONLY. Mid-game,
+   * only an existing team name matches (returns null otherwise); creating
+   * fresh hider/seeker teams once the round is live would mangle role and
+   * win-condition bookkeeping. Mid-game team selection goes through this
+   * same existing-team path, driven by the client's team-picker screen.
+   */
   joinTeam(playerId, teamName) {
     const player = this.players.get(playerId);
     if (!player) return null;
@@ -103,6 +120,7 @@ export class Game {
       (t) => t.name.toLowerCase() === cleanName.toLowerCase(),
     );
     if (!team) {
+      if (this.phase !== 'lobby') return null;
       team = {
         id: genId('t'),
         name: cleanName,
@@ -117,17 +135,21 @@ export class Game {
   }
 
   /**
-   * Host kicks a player (lobby only — mid-game removals would mangle team
-   * state; the referee force-tags a problem team instead). Not a ban: the
-   * kicked phone can re-join. Empty shell teams left behind are harmless —
-   * hiderTeams() ignores player-less teams.
+   * Host kicks a player — any phase. Not a ban: the kicked phone can
+   * re-join (mid-game it lands back in as a spectator-until-team-pick, see
+   * addPlayer). Empty shell teams left behind are harmless — hiderTeams()
+   * ignores player-less teams; removing the last hider on a team can end
+   * the game, so we re-check the win condition after.
    */
   removePlayer(playerId) {
-    if (this.phase !== 'lobby') return null;
     const player = this.players.get(playerId);
     if (!player || player.isHost) return null; // hosts can't be kicked
     this.players.delete(playerId);
-    this.logEvent('kick', `${player.name} removed from lobby`);
+    this.logEvent(
+      'kick',
+      `${player.name} removed${this.phase === 'lobby' ? ' from lobby' : ' mid-game'}`,
+    );
+    if (this.phase === 'seek') this.checkWin();
     return player;
   }
 
@@ -177,6 +199,13 @@ export class Game {
       for (const key of Object.keys(DEFAULT_SETTINGS)) {
         if (settings[key] != null && Number.isFinite(+settings[key])) {
           this.settings[key] = +settings[key];
+          if (key === 'autoEvents' || key === 'autoEventIntervalSeconds') {
+            // Re-arm immediately so toggling mid-round takes effect now,
+            // not after whatever countdown happened to be running before.
+            this.scheduleNextAutoEvent(
+              this.phase === 'hide' || this.phase === 'seek' ? Date.now() : null,
+            );
+          }
         }
       }
     }
@@ -214,6 +243,7 @@ export class Game {
     } else if (phase === 'over') {
       this.phaseEndsAt = null;
     }
+    this.scheduleNextAutoEvent(phase === 'hide' || phase === 'seek' ? Date.now() : null);
     this.logEvent(
       'phase',
       `→ ${phase}` +
@@ -373,6 +403,19 @@ export class Game {
     this.broadcastState();
   }
 
+  /** (Re)arm the auto-curveball clock, or disarm it (pass `null`). */
+  scheduleNextAutoEvent(from) {
+    this.nextAutoEventAt =
+      from && this.settings.autoEvents ? from + this.settings.autoEventIntervalSeconds * 1000 : null;
+  }
+
+  /** Fire one random curveball and re-arm the clock for the next one. */
+  autoTrigger(now) {
+    const type = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
+    this.trigger(type);
+    this.scheduleNextAutoEvent(now);
+  }
+
   // ── Server tick (~2s): timers, boundary checks, event expiry ────────
 
   tick(now = Date.now()) {
@@ -405,6 +448,18 @@ export class Game {
         this.broadcastState();
       }
       return;
+    }
+
+    // Auto-curveballs: fire a random event on a timer instead of waiting
+    // on the referee. Skipped while one is already active so effects don't
+    // stack (shrink is instant and has no activeEvent, so it's exempt).
+    if (
+      this.nextAutoEventAt &&
+      now >= this.nextAutoEventAt &&
+      (this.phase === 'hide' || this.phase === 'seek') &&
+      !this.activeEvent
+    ) {
+      this.autoTrigger(now);
     }
 
     // Boundary enforcement — hide + seek phases, hider teams only
@@ -500,6 +555,7 @@ export class Game {
       boundary: this.boundary,
       settings: this.settings,
       activeEvent: this.activeEvent,
+      nextAutoEventAt: this.nextAutoEventAt,
       winnerTeamId: this.winnerTeamId,
       winnerTeamName: this.winnerTeamId ? this.teams.get(this.winnerTeamId)?.name : null,
       teams: [...this.teams.values()].map((t) => ({
@@ -517,6 +573,12 @@ export class Game {
             isHost: p.isHost,
           })),
       })),
+      // Joined but no team — mid-game joiners waiting at the team-picker
+      // screen (see joinTeam). Surfaced so the referee can still see/kick
+      // them; TeamList has no bucket for a null teamId otherwise.
+      unassigned: [...this.players.values()]
+        .filter((p) => !p.teamId && !p.isHost)
+        .map((p) => ({ id: p.id, name: p.name, ready: p.ready, connected: p.connected, isHost: p.isHost })),
     };
   }
 

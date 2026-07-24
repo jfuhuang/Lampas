@@ -239,17 +239,46 @@ test('refereeState(hostId) keeps `you` — host must not lose identity', () => {
   assert.equal(rs.positions.length, 1); // still the full referee payload
 });
 
-test('kick: lobby-only, never the host, player fully removed', () => {
+test('kick: never the host, player fully removed, works mid-game too', () => {
   const { game } = makeGame();
   const { host, h1 } = setupTwoTeams(game);
   assert.equal(game.removePlayer(host.id), null, 'host is unkickable');
   const removed = game.removePlayer(h1.id);
   assert.equal(removed.id, h1.id);
   assert.equal(game.players.has(h1.id), false);
-  // Mid-game kick refused
+  // Mid-game kick now allowed
   const h2 = game.addPlayer({ name: 'Zed', teamName: 'Owls' });
   game.startPhase('seek');
-  assert.equal(game.removePlayer(h2.id), null);
+  assert.equal(game.removePlayer(host.id), null, 'host still unkickable mid-game');
+  const removedMidGame = game.removePlayer(h2.id);
+  assert.equal(removedMidGame.id, h2.id);
+  assert.equal(game.players.has(h2.id), false);
+});
+
+test('mid-game join: no fresh teams, matches existing by name, else lands unassigned', () => {
+  const { game } = makeGame();
+  setupTwoTeams(game);
+  game.startPhase('hide');
+
+  // Unknown team name mid-game → no team created, player left unassigned.
+  const newcomer = game.addPlayer({ name: 'Newbie', teamName: 'Brand New Team' });
+  assert.equal(newcomer.teamId, null);
+  assert.equal(game.teams.size, 3, 'no team was spun up mid-game');
+  assert.ok(
+    game.baseState().unassigned.some((p) => p.id === newcomer.id),
+    'unassigned bucket surfaces the teamless joiner',
+  );
+
+  // Existing team name mid-game → attaches normally.
+  const returning = game.addPlayer({ name: 'Cara', teamName: 'Owls' });
+  const owls = [...game.teams.values()].find((t) => t.name === 'Owls');
+  assert.equal(returning.teamId, owls.id);
+
+  // Picking from the team-picker (team:join) — only works for real teams.
+  assert.equal(game.joinTeam(newcomer.id, 'Still Fake'), null);
+  const picked = game.joinTeam(newcomer.id, 'Owls');
+  assert.equal(picked.id, owls.id);
+  assert.equal(newcomer.teamId, owls.id);
 });
 
 test('deleteTeam: lobby-only, removes team + members, spares host', () => {

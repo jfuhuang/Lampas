@@ -1,5 +1,6 @@
 import Countdown from '../components/Countdown.jsx';
 import PlayerMap from '../components/PlayerMap.jsx';
+import CompassDial from '../components/CompassDial.jsx';
 import { useGame } from '../context/GameContext.jsx';
 import { PhaseBadge, GameOver } from './HiderView.jsx';
 
@@ -30,6 +31,8 @@ export default function SeekerView() {
           className="mt-3"
         />
       </header>
+
+      <CompassDial heading={heading} />
 
       <PlayerMap boundary={game.boundary} myPos={myPos} heading={heading} others={game.positions} />
 

@@ -50,11 +50,29 @@ export default function RefereeView() {
     socket.emit('host:startPhase', { phase: 'hide' });
   };
 
+  // What the NEXT auto-curveball would shrink the boundary to, if it lands
+  // on "shrink" — random among 4 types, so this is a preview, not a promise.
+  // Only worth showing once auto-curveballs are armed for this round.
+  const shrinkPreviewM = (() => {
+    if (!settings.autoEvents || !boundary) return null;
+    const r = Math.min(
+      boundary.radiusM,
+      Math.max(20, Math.round(boundary.radiusM * (settings.shrinkFactor ?? 0.6))),
+    );
+    return r < boundary.radiusM ? r : null; // already at the floor — nothing to preview
+  })();
+
   return (
     <div className="flex flex-1 flex-col gap-4 py-4 lg:grid lg:grid-cols-[1fr_380px] lg:items-start">
       {/* ── Map (always visible; the referee's main instrument) ── */}
       <div className="relative h-[45dvh] min-h-[280px] overflow-hidden rounded-xl border border-neutral-800 lg:sticky lg:top-4 lg:h-[calc(100dvh-2rem)]">
-        <RefereeMap positions={positions} boundary={boundary} phase={phase} onSetCenter={setCenter} />
+        <RefereeMap
+          positions={positions}
+          boundary={boundary}
+          phase={phase}
+          onSetCenter={setCenter}
+          shrinkPreviewM={shrinkPreviewM}
+        />
         <NorthBadge />
       </div>
 
@@ -201,6 +219,30 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
         </div>
       </Section>
 
+      <Section title="2b · Auto curveballs">
+        <label className="flex items-center justify-between gap-3">
+          <span className="text-sm font-semibold text-neutral-300">
+            Fire random sound/torch/shrink/reveal on a timer
+          </span>
+          <input
+            type="checkbox"
+            checked={!!settings.autoEvents}
+            onChange={(e) => setSetting('autoEvents', e.target.checked ? 1 : 0)}
+            className="h-5 w-5 accent-amber-400"
+            aria-label="Enable auto curveballs"
+          />
+        </label>
+        {!!settings.autoEvents && (
+          <div className="mt-3">
+            <NumberField
+              label="Every (min)"
+              value={Math.round(settings.autoEventIntervalSeconds / 60)}
+              onChange={(v) => setSetting('autoEventIntervalSeconds', Math.max(15, v * 60))}
+            />
+          </div>
+        )}
+      </Section>
+
       <Section title="3 · Who seeks first? (tap a team to toggle)">
         <div className="flex flex-wrap gap-2">
           {game.teams.map((t) => (
@@ -287,6 +329,18 @@ function LiveControls({ game, boundary }) {
   return (
     <>
       <Section title="Curveballs">
+        {game.nextAutoEventAt && (
+          <p className="mb-1 text-xs text-neutral-500">
+            🎲 auto curveball in{' '}
+            {Math.max(0, Math.round((game.nextAutoEventAt - game.serverNow) / 1000))}s
+          </p>
+        )}
+        {game.settings.autoEvents && (
+          <p className="mb-2 text-xs text-neutral-500">
+            <span className="text-red-400">- - -</span> on the map = where it'd shrink to, if that
+            one lands on shrink
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <EventButton emoji="🔊" label="Sound" hint="hider phones ring" onClick={() => trigger('sound')} />
           <EventButton emoji="🔦" label="Torch" hint="lights-on flash" onClick={() => trigger('torch')} />
@@ -402,15 +456,21 @@ function LiveControls({ game, boundary }) {
 function PlayerRoster({ game }) {
   const toast = useToast();
   const [armedTeamId, setArmedTeamId] = useState(null); // 2-tap team delete
+  const [armedKickId, setArmedKickId] = useState(null); // 2-tap mid-game kick
   const inLobby = game.phase === 'lobby';
 
-  // Kicking/deleting is lobby-only (server enforces too) — mid-game, force-tag instead.
-  const onKick = inLobby
-    ? (p) => {
-        socket.emit('host:kick', { targetPlayerId: p.id });
-        toast(`Kicked ${p.name} — they can re-join anytime`, 'info');
-      }
-    : undefined;
+  // Lobby: kick right away. Mid-game: removing someone can flip the win
+  // condition (last hider on a team gone), so arm it first.
+  const onKick = (p) => {
+    if (!inLobby && armedKickId !== p.id) {
+      setArmedKickId(p.id);
+      toast(`Tap kick on ${p.name} again to remove them mid-game`, 'warn');
+      return;
+    }
+    setArmedKickId(null);
+    socket.emit('host:kick', { targetPlayerId: p.id });
+    toast(`Kicked ${p.name} — they can re-join anytime`, 'info');
+  };
 
   // Deleting removes the team AND kicks all its members — arm on first tap.
   const onDeleteTeam = inLobby
@@ -426,14 +486,44 @@ function PlayerRoster({ game }) {
       }
     : undefined;
 
+  const unassigned = game.unassigned ?? [];
+
   return (
-    <Section title={`Players (${game.teams.reduce((n, t) => n + t.players.length, 0)})`}>
+    <Section
+      title={`Players (${game.teams.reduce((n, t) => n + t.players.length, 0) + unassigned.length})`}
+    >
       <TeamList
         teams={game.teams}
         youId={game.you?.id}
         onKick={onKick}
         onDeleteTeam={onDeleteTeam}
       />
+      {unassigned.length > 0 && (
+        <div className="mt-3 rounded-xl border border-dashed border-amber-800 bg-panel p-3">
+          <p className="mb-2 text-xs font-black uppercase tracking-widest text-amber-500">
+            Picking a team…
+          </p>
+          <ul className="flex flex-wrap gap-2">
+            {unassigned.map((p) => (
+              <li
+                key={p.id}
+                className={`flex items-center gap-1 rounded-lg bg-neutral-800 px-2 py-1 text-sm text-neutral-300 ${
+                  !p.connected ? 'opacity-40' : ''
+                }`}
+              >
+                {p.name}
+                <button
+                  onClick={() => onKick(p)}
+                  aria-label={`Kick ${p.name}`}
+                  className="-mr-0.5 ml-1 rounded px-1.5 py-0.5 font-black text-red-400 active:scale-90"
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Section>
   );
 }

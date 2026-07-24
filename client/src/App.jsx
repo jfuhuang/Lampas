@@ -1,6 +1,7 @@
 import { GameProvider, useGame } from './context/GameContext.jsx';
 import JoinScreen from './screens/JoinScreen.jsx';
 import Lobby from './screens/Lobby.jsx';
+import PickTeam from './screens/PickTeam.jsx';
 import HiderView from './screens/HiderView.jsx';
 import SeekerView from './screens/SeekerView.jsx';
 import HostView from './screens/HostView.jsx';
@@ -38,6 +39,7 @@ function Router() {
   if (!joined || !you) return <JoinScreen />;
   if (you.isHost) return <HostView />;
   if (phase === 'lobby') return <Lobby />;
+  if (!you.teamId) return <PickTeam />;
   if (you.role === 'seeker') return <SeekerView />;
   return <HiderView />;
 }

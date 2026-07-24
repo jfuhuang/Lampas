@@ -95,8 +95,8 @@ export default function Lobby() {
 }
 
 /**
- * `onKick(player)` / `onDeleteTeam(team)` (host lobby only) add ✕ per
- * player and a 🗑 per team.
+ * `onKick(player)` (host, any phase) / `onDeleteTeam(team)` (host, lobby
+ * only) add ✕ per player and a 🗑 per team.
  */
 export function TeamList({ teams, youId, onKick, onDeleteTeam }) {
   return (

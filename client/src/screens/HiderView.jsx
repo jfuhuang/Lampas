@@ -3,6 +3,7 @@ import { socket } from "../lib/socket.js";
 import { haversine, vibrate } from "../lib/geo.js";
 import Countdown from "../components/Countdown.jsx";
 import PlayerMap from "../components/PlayerMap.jsx";
+import CompassDial from "../components/CompassDial.jsx";
 import GameStats from "../components/GameStats.jsx";
 import { useGame } from "../context/GameContext.jsx";
 
@@ -73,6 +74,9 @@ export default function HiderView() {
           </p>
         )}
       </div>
+
+      {/* Standalone — visible even with the map collapsed for a dark screen. */}
+      <CompassDial heading={heading} />
 
       {/* Collapsed by default — a lit screen gives away a hiding spot. */}
       <PlayerMap boundary={game.boundary} myPos={myPos} heading={heading} others={game.positions} collapsedByDefault />
