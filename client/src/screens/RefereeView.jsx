@@ -18,7 +18,7 @@ import { TeamList } from './Lobby.jsx';
  * Layout: single column on phones, map + control column on desktop.
  */
 export default function RefereeView() {
-  const { game } = useGame();
+  const { game, logout } = useGame();
   const toast = useToast();
   const { phase, phaseEndsAt, serverNow, boundary, settings } = game;
   const positions = game.positions ?? [];
@@ -90,6 +90,7 @@ export default function RefereeView() {
             onUseMyLocation={useMyLocation}
             onRadius={setRadius}
             onStart={startHide}
+            onLogout={logout}
           />
         )}
 
@@ -152,7 +153,7 @@ function GameLog({ log }) {
 
 /* ── Lobby setup: boundary, timers, team roles, start ─────────────────── */
 
-function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, onStart }) {
+function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, onStart, onLogout }) {
   const setSetting = (key, value) => socket.emit('host:config', { settings: { [key]: value } });
 
   return (
@@ -272,6 +273,13 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
         className="rounded-xl bg-lamp px-4 py-5 text-xl font-black text-night active:scale-95"
       >
         🏁 Start hide phase
+      </button>
+
+      <button
+        onClick={onLogout}
+        className="mx-auto px-1 py-2 text-xs font-semibold text-neutral-500 underline active:scale-95"
+      >
+        Log out (forget me on this phone)
       </button>
     </>
   );
