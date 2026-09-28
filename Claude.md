@@ -197,7 +197,7 @@ the code as it exists — keep this section updated when the code changes.
 | Game context | `client/src/context/GameContext.jsx` | Owns socket subscription, state mirror, creds, position streaming, overlays/toasts. Consumed via `useGame()` / `useToast()` hooks — screens take NO game props |
 | Screens | `client/src/screens/` | `JoinScreen` (doubles as `/host` password login), `Lobby`, `HiderView` ("I'm caught" + collapsed boundary map), `SeekerView` (read-only hunt list + boundary map), `HostView` (plain referee for teamless hosts; 👑/🔦 tabs only if host has a team), `RefereeView` |
 | Components | `client/src/components/` | `Countdown` (server-clock corrected), `Toast`, `TorchOverlay` (full-screen white flash), `RefereeMap` (Leaflet, plain JS — NOT react-leaflet), `PlayerMap` (boundary circle + OWN dot only, collapsible; collapsed by default for hiders — lit screen betrays the hiding spot; own position is the local GPS echo `myPos` from GameContext, other players' positions never reach player clients) |
-| Device APIs | `client/src/lib/geo.js` | `startPositionStream` (3s throttle), `getCurrentPosition`, `requestWakeLock` (re-acquires on visibility), `unlockAudio`, `playRevealTone` (loops `public/sounds/reveal.mp3`), `vibrate`, `enableTorch`/`disableTorch`. Also exports `DEFAULT_CENTER`/`DEFAULT_ZOOM` (Snow Mountain Ranch) |
+| Device APIs | `client/src/lib/geo.js` | `startPositionStream` (3s throttle), `getCurrentPosition`, `requestWakeLock` (re-acquires on visibility), `unlockAudio`, `playRevealTone` (loops `public/sounds/reveal.mp3`), `vibrate`, `enableTorch`/`disableTorch`. Also exports `DEFAULT_CENTER`/`DEFAULT_ZOOM` (Iowa State campus) |
 | Socket client | `client/src/lib/socket.js` | Single shared socket, `resync` on every connect AND on tab-visible. Persistence: playerId (`lampas.playerId`) + name/team creds (`lampas.creds`) in `localStorage`. Exposes `setEmitInterceptor()` for the dev view. Server URL from `VITE_SERVER_URL` (build-time, split deploys e.g. Vercel client + remote server — see `client/.env.example`); unset = same-origin monolith |
 | Dev view | `client/src/dev/DevApp.jsx`, `client/src/dev/engine.js` | `?dev` URL flag swaps the app for a mock-driven harness: real screens, screen + persona pickers, local engine mirroring server rules (tag/convert/win/timers/curveballs), bot drift on the map, sim pause/reset. `socket.emit` intercepted, real socket disconnected. Engine is a deliberate throwaway mimic — `server/game.js` stays the rules source of truth |
 
@@ -432,8 +432,8 @@ the code as it exists — keep this section updated when the code changes.
 - **Tailwind v4** (`@tailwindcss/vite` plugin, `@theme` tokens in `index.css` — there is
   no `tailwind.config.js`, that's v4-normal). Custom colors: `night`, `panel`, `lamp`.
 - **Leaflet used directly** (no react-leaflet — avoids React-version coupling). OSM tiles
-  dark-filtered via CSS for night use. Default view: **Snow Mountain Ranch, Granby CO**
-  (`DEFAULT_CENTER` in `client/src/lib/geo.js`, 39.9865/-105.9333, zoom 15) — starting
+  dark-filtered via CSS for night use. Default view: **Iowa State University campus, Ames IA**
+  (`DEFAULT_CENTER` in `client/src/lib/geo.js`, 42.0267/-93.6465, zoom 15) — starting
   view only; auto-fits to the boundary once one is set. The dev engine duplicates the
   coords literally (it must stay importable in plain Node, and lib/geo.js touches
   browser globals).

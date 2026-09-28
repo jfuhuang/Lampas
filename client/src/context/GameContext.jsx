@@ -16,6 +16,7 @@ import {
   disableTorch,
   requestWakeLock,
   startCompass,
+  unlockAudioOnFirstGesture,
 } from '../lib/geo.js';
 
 /**
@@ -138,7 +139,9 @@ export function GameProvider({ children }) {
         soundPlayedFor.current = ev.endsAt;
         const secondsLeft = Math.max(1, (ev.endsAt - state.serverNow) / 1000);
         // Only HIDER phones make noise (audible reveal); players vibrate.
-        if (state.you?.role === 'hider') playRevealTone(secondsLeft);
+        if (state.you?.role === 'hider' && !playRevealTone(secondsLeft)) {
+          showToast('🔊 SOUND EVENT — tap anywhere once to enable sound on this phone', 'alert');
+        }
         if (!state.you?.isHost) vibrate();
       }
       if (ev?.type === 'reveal' && ev.endsAt !== revealToastFor.current) {
@@ -227,6 +230,11 @@ export function GameProvider({ children }) {
       socket.off('disconnect', onDisconnect);
     };
   }, [showToast]);
+
+  // Any first tap unlocks audio (Ready button isn't the only path in).
+  useEffect(() => {
+    unlockAudioOnFirstGesture();
+  }, []);
 
   // Torch overlay closes when the event expires (server drives via state)
   useEffect(() => {
