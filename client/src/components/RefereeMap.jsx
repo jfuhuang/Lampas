@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { DEFAULT_CENTER, DEFAULT_ZOOM } from '../lib/geo.js';
 import { addStyleControl } from '../lib/mapStyles.js';
+import { drawHeistLayers } from '../lib/heistLayers.js';
 
 /**
  * Live Leaflet map for the host/referee ONLY — the one place player
@@ -9,17 +10,20 @@ import { addStyleControl } from '../lib/mapStyles.js';
  *
  * - dots: green = hider, red = seeker, host ringed in amber
  * - greyed dot = phone quiet (disconnected / no recent position)
- * - amber circle = boundary; in the lobby, tapping the map moves its center
+ * - amber circle = boundary; in the lobby, a tap calls onLobbyTap (boundary
+ *   center, or a heist station / prison — RefereeView picks)
+ * - heist: violet = live station, dashed grey = dark station, blue = prison
  */
-export default function RefereeMap({ positions, boundary, phase, onSetCenter, shrinkPreviewM }) {
+export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shrinkPreviewM, heist }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null); // markers redrawn each render
   const circleRef = useRef(null);
   const previewCircleRef = useRef(null); // dashed: where the next auto-shrink would land
   const centeredOnce = useRef(false);
-  const onSetCenterRef = useRef(onSetCenter);
-  onSetCenterRef.current = onSetCenter;
+  const heistLayerRef = useRef(null); // heist stations + prison
+  const onLobbyTapRef = useRef(onLobbyTap);
+  onLobbyTapRef.current = onLobbyTap;
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
 
@@ -30,11 +34,13 @@ export default function RefereeMap({ positions, boundary, phase, onSetCenter, sh
       DEFAULT_ZOOM,
     );
     addStyleControl(map); // Night / Terrain / Satellite picker
+    heistLayerRef.current = L.layerGroup().addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
     map.on('click', (e) => {
-      // Boundary placement only makes sense before the game starts.
+      // Boundary / station / prison placement only makes sense before the
+      // game starts — the parent decides which one a tap places.
       if (phaseRef.current === 'lobby') {
-        onSetCenterRef.current?.({ lat: e.latlng.lat, lng: e.latlng.lng });
+        onLobbyTapRef.current?.({ lat: e.latlng.lat, lng: e.latlng.lng });
       }
     });
     mapRef.current = map;
@@ -83,6 +89,11 @@ export default function RefereeMap({ positions, boundary, phase, onSetCenter, sh
       }).addTo(map);
     }
   }, [boundary?.center?.lat, boundary?.center?.lng, shrinkPreviewM]);
+
+  // Heist: every station (dark ones dashed) + prison.
+  useEffect(() => {
+    drawHeistLayers(heistLayerRef.current, heist ?? {});
+  }, [heist]);
 
   // Player dots
   useEffect(() => {

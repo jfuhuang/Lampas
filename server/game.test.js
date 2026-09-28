@@ -357,3 +357,72 @@ test('reset to lobby restores caught teams to hiders', () => {
   assert.equal(game.teams.get(h1.teamId).role, 'hider');
   assert.equal(game.winnerTeamId, null);
 });
+
+test('team flow: create, join by id, leave; empty team is deleted (lobby only)', () => {
+  const { game } = makeGame();
+  const a = game.addPlayer({ name: 'A' });
+  const b = game.addPlayer({ name: 'B' });
+  assert.equal(a.teamId, null, 'joins a lobby teamless');
+
+  const { team } = game.createTeam(a.id, 'Owls');
+  assert.equal(a.teamId, team.id);
+  assert.ok(game.createTeam(b.id, 'owls').error, 'duplicate name refused');
+
+  assert.equal(game.joinTeamById(b.id, team.id).team.id, team.id);
+  assert.equal(game.leaveTeam(a.id), true);
+  assert.equal(game.teams.has(team.id), true, 'still has B');
+  assert.equal(game.leaveTeam(b.id), true);
+  assert.equal(game.teams.has(team.id), false, 'empty team deleted');
+
+  // Disconnecting never touches the roster.
+  const { team: t2 } = game.createTeam(a.id, 'Foxes');
+  game.setConnected(a.id, false);
+  assert.equal(game.teams.has(t2.id), true);
+
+  // Mid-game: no leaving, no creating.
+  game.startPhase('hide');
+  assert.equal(game.leaveTeam(a.id), false);
+  assert.ok(game.createTeam(b.id, 'Late').error);
+  assert.equal(game.teams.has(t2.id), true);
+});
+
+test('maxTeamSize caps joins and host moves; kick/delete leave no empty teams', () => {
+  const { game } = makeGame();
+  game.configure({ settings: { maxTeamSize: 2 } });
+  const [a, b, c] = ['A', 'B', 'C'].map((name) => game.addPlayer({ name }));
+  const { team } = game.createTeam(a.id, 'Owls');
+  assert.ok(game.joinTeamById(b.id, team.id).team);
+  assert.ok(game.joinTeamById(c.id, team.id).error, 'full');
+  assert.ok(game.movePlayer(c.id, team.id).error, 'host move respects cap too');
+
+  game.removePlayer(a.id);
+  game.removePlayer(b.id);
+  assert.equal(game.teams.size, 0, 'kicking the last members deletes the team');
+
+  const { team: t2 } = game.createTeam(c.id, 'Solo');
+  game.removeTeam(t2.id, { kick: false });
+  assert.equal(c.teamId, null, 'deleted team leaves members teamless');
+  assert.equal(game.players.has(c.id), true);
+});
+
+test('randomizeTeams: balanced, honours maxTeamSize, prunes empties', () => {
+  const { game } = makeGame();
+  game.configure({ settings: { maxTeamSize: 3 } });
+  const players = Array.from({ length: 7 }, (_, i) => game.addPlayer({ name: `P${i}` }));
+  game.addPlayer({ name: 'Ref', isHost: true });
+  assert.equal(game.randomizeTeams(), true);
+  assert.equal(game.teams.size, 3); // ceil(7/3)
+  const sizes = [...game.teams.keys()].map((id) => game.teamSize(id)).sort();
+  assert.deepEqual(sizes, [2, 2, 3]);
+  assert.ok(players.every((p) => p.teamId));
+
+  // Existing teams are reused; extra ones vanish when there are too few players.
+  game.configure({ settings: { maxTeamSize: 0 } });
+  for (const p of players.slice(2)) game.removePlayer(p.id);
+  game.randomizeTeams();
+  assert.ok(game.teams.size <= 2);
+  assert.ok([...game.teams.keys()].every((id) => game.teamSize(id) > 0));
+
+  game.startPhase('hide');
+  assert.equal(game.randomizeTeams(), false, 'lobby only');
+});

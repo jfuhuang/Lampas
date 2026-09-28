@@ -397,6 +397,34 @@ the code as it exists — keep this section updated when the code changes.
   team switches) never count as hiders; (2) a game that STARTED with a single hider
   team plays until 0 remain (else it would end at kickoff) — `initialHiderTeams` is
   snapshotted at seek start. Mirrored in the dev engine.
+- **Heist mode — cops & robbers** (2026-09-28, branch `feature/heist-mode`): second
+  game mode, picked in the host lobby (`host:config {mode}`, `game.mode` =
+  `'hideseek' | 'heist'`, lobby-only). Rules live in `server/heist.js`, which is mixed
+  into `Game.prototype`. Existing machinery is **reused**: team role `seeker` = cops,
+  `hider` = robbers. Phase `hide` = scatter and `seek` = heist, so timers, curveballs
+  and reveal all work unchanged. Robbers are tracked **per player** (`player.robber`:
+  `free → jailed → immune → free`), not converted per team. `tagPlayer`/`caught:self`
+  route to `catchRobber` in heist. Stations are host-placed and **rotate**: only
+  `activeStations` are live at once, and finishing one lights a random *different* one
+  (it stays live if nothing else is dark). There is one lock per station, released on
+  cancel, catch, or after a 90s timeout. Presence is **GPS only**: `task:start`
+  requires a fix no older than 15s, accuracy ≤35 m, and being within `stationRadiusM`.
+  `task:complete` allows radius +15 m of slack and a minimum elapsed time (3s, or 10s
+  for download). Jail time counts only while a fresh fix is inside the prison (paused,
+  not reset). **Privacy**: live stations go to robbers only, never cops (unit-tested).
+  Inactive stations stay hidden from everyone except the referee. The robber roster
+  status is public so cops can see who's immune. Boundary checks run **per robber** in
+  heist (a centroid is meaningless for scattered robbers). Stats use
+  `heist.robbers[].points/timesCaught` instead of `statsPayload()`. Client:
+  `RobberView`, `CopView`, `components/tasks/*` (one file per mini-game, plus
+  `TaskRunner`, which pads the submit to ≥3.5s and offers "retry upload" on a refused or
+  timed-out ack), `components/HeistBits.jsx`, `screens/RefereeHeist.jsx` (mode picker,
+  map "Tap places" picker, station list, rules, live overrides via `host:heist`),
+  `lib/heistLayers.js` (map overlays). GPS `accuracy` now streams with `pos:update`.
+  Dev view: "💰 heist mode + layout", "me → station/prison" teleports, "bot jail".
+  Tests: `server/heist.test.js`. Backlog ideas (not built): jailbreak, alarms (fuzzy
+  circle shown to cops), loot carry to a hideout, 2-robber vault, cop radar curveball,
+  QR-at-station presence proof.
 - **Boundary grace penalty = forced tag** of the whole offending team (not auto-reveal);
   warning fires in both hide and seek phases, penalty only in seek.
 - **Countdown drift handling**: every `game:state` carries `serverNow`; the client

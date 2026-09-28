@@ -31,6 +31,7 @@ export { GameContext };
 
 export function GameProvider({ children }) {
   const [game, setGame] = useState(null); // last `game:state` payload
+  const [lobbies, setLobbies] = useState([]); // browse-list summaries
   const [joined, setJoined] = useState(!!getStoredPlayerId());
   const [connected, setConnected] = useState(socket.connected);
   const [torchActive, setTorchActive] = useState(false);
@@ -47,23 +48,37 @@ export function GameProvider({ children }) {
   }, []);
 
   const join = useCallback(
-    (name, teamName, hostPass) => {
+    (name, hostPass) => {
       socket.emit(
         'join',
-        { playerId: getStoredPlayerId(), name, teamName, hostPass },
+        { playerId: getStoredPlayerId(), name, hostPass },
         (res) => {
           if (res.error) {
             showToast(res.error, 'alert');
             return;
           }
           storePlayerId(res.playerId);
-          storeCreds({ name, teamName, hostPass });
+          storeCreds({ name, hostPass });
           setJoined(true);
         },
       );
     },
     [showToast],
   );
+
+  /** Acked server action; failures surface as an alert toast. */
+  const request = useCallback(
+    (event, payload) =>
+      new Promise((resolve) => {
+        socket.emit(event, payload, (res) => {
+          if (res?.error) showToast(res.error, 'alert');
+          resolve(res ?? {});
+        });
+      }),
+    [showToast],
+  );
+
+  const leaveLobby = useCallback(() => socket.emit('lobby:leave'), []);
 
   /** Full local sign-out: wipe stored identity + creds, back to Join. */
   const logout = useCallback(() => {
@@ -78,8 +93,8 @@ export function GameProvider({ children }) {
   useEffect(() => {
     const onState = (state) => {
       if (state.unknownPlayer) {
-        // Server restarted and lost our playerId. If we have stored creds,
-        // silently re-join with the same name + team; otherwise show Join.
+        // Server restarted and lost our session. If we have stored creds,
+        // silently re-join with the same username; otherwise show Join.
         // Stale resyncs (sent with the old playerId before the re-join ack
         // lands) also answer unknownPlayer — ignore them while one re-join
         // is in flight, never bounce a creds-holding user back to Join.
@@ -93,7 +108,7 @@ export function GameProvider({ children }) {
           autoRejoined.current = true;
           socket.emit(
             'join',
-            { name: creds.name, teamName: creds.teamName, hostPass: creds.hostPass },
+            { name: creds.name, hostPass: creds.hostPass },
             (res) => {
               autoRejoined.current = false;
               if (res.error) {
@@ -111,6 +126,7 @@ export function GameProvider({ children }) {
         return;
       }
       setGame(state);
+      if (state.lobbies) setLobbies(state.lobbies);
       isHostRef.current = !!state.you?.isHost;
       // Derive overlays from authoritative state so a resync after a drop
       // still shows/hides them correctly (never rely on event packets).
@@ -151,20 +167,25 @@ export function GameProvider({ children }) {
         'warn',
       );
     };
+    // Heist (cops & robbers) — fast-path toasts; state still comes via game:state.
+    const onHeistCaught = ({ name }) => showToast(`🚨 ${name} was caught — off to prison!`, 'alert');
+    const onHeistReleased = () => {
+      vibrate([100, 60, 100]);
+      showToast('🛡 Released! You are IMMUNE for a bit — get back to work', 'info');
+    };
+    const onHeistScore = ({ name, points, score }) =>
+      showToast(`💰 +${points}${name ? ` — ${name} cracked a station` : ''} (total ${score})`, 'info');
     const onShrink = () => showToast('THE ZONE IS SHRINKING — check the boundary!', 'warn');
-    const onKicked = ({ reason, teamName } = {}) => {
-      // Drop the stored playerId so we don't silently auto-rejoin; creds
-      // stay so re-joining (it's not a ban) is one tap.
-      clearPlayerId();
-      setJoined(false);
-      setGame(null);
+    // Kicked / lobby closed: the session survives, the server drops us on
+    // the browse list (its own game:state follows this event).
+    const onKicked = ({ reason, lobbyName } = {}) =>
       showToast(
-        reason === 'team-deleted'
-          ? `The host deleted team ${teamName ?? ''} — re-join under a new team`
+        reason === 'lobby-closed'
+          ? `The host closed ${lobbyName ?? 'the lobby'}`
           : 'The host removed you from the lobby',
         'alert',
       );
-    };
+    const onLobbies = (list) => setLobbies(list);
     const onConnect = () => setConnected(true);
     const onDisconnect = () => {
       setConnected(false);
@@ -177,6 +198,10 @@ export function GameProvider({ children }) {
     socket.on('team:converted', onConverted);
     socket.on('boundary:warning', onWarning);
     socket.on('kicked', onKicked);
+    socket.on('lobbies:list', onLobbies);
+    socket.on('heist:score', onHeistScore);
+    socket.on('heist:released', onHeistReleased);
+    socket.on('heist:caught', onHeistCaught);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     // The module-level connect handler may have resynced BEFORE these
@@ -194,6 +219,10 @@ export function GameProvider({ children }) {
       socket.off('team:converted', onConverted);
       socket.off('boundary:warning', onWarning);
       socket.off('kicked', onKicked);
+      socket.off('lobbies:list', onLobbies);
+      socket.off('heist:score', onHeistScore);
+      socket.off('heist:released', onHeistReleased);
+      socket.off('heist:caught', onHeistCaught);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
     };
@@ -207,7 +236,7 @@ export function GameProvider({ children }) {
   // ── Position streaming (hide + seek phases) ──────────────────────────
   const phase = game?.phase ?? 'lobby';
   useEffect(() => {
-    if (!joined || (phase !== 'hide' && phase !== 'seek')) return undefined;
+    if (!joined || game?.browse || (phase !== 'hide' && phase !== 'seek')) return undefined;
     // Safety net for players who skipped Ready or reloaded mid-game: the
     // Wake Lock API needs no gesture, so grab it whenever play is live.
     requestWakeLock();
@@ -224,10 +253,12 @@ export function GameProvider({ children }) {
       stop();
       stopCompass();
     };
-  }, [joined, phase, showToast]);
+  }, [joined, phase, game?.browse, showToast]);
 
   const value = {
     game,
+    lobbies,
+    request,
     you: game?.you ?? null,
     phase,
     joined,
@@ -239,6 +270,7 @@ export function GameProvider({ children }) {
     dismissToast: () => setToast(null),
     showToast,
     join,
+    leaveLobby,
     logout,
   };
 

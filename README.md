@@ -45,6 +45,34 @@ One URL, nothing to coordinate, no database — state lives in memory for one ni
 6. **Game over** — everyone sees the survival leaderboard (who lasted how long,
    how each team got caught) and an event timeline.
 
+### 💰 Heist mode (cops & robbers)
+
+The host picks **Game mode → Heist** in the lobby. The same teams are used: the host
+toggles which team(s) are **Cops**, and everyone else is a **Robber**.
+
+- **Setup (host)**: place the **prison** and some **task stations**. You can tap the map
+  (use the *Tap places* picker on the map), or walk to each spot and hit *Station here* /
+  *Prison here*. Dropping it where you stand records that spot's real GPS reading, so it
+  is more accurate. Place more stations than *Live at once* (default 3) so they can rotate.
+- **Scatter** (reuses the hide timer): robbers spread out and cops stay frozen. Then the
+  **heist** starts (reuses the seek timer).
+- **Tasks**: robbers see only the **live** stations, with distance and a direction arrow.
+  Cops never receive station locations. Within the station radius (default 20 m), tap
+  Start to play a short mini-game (wires / keycard swipe / keypad / hold-to-download /
+  Simon / safe dial). The server checks the robber's GPS when the task starts and again
+  when it finishes, and allows 15 m of slack at the finish. Points go into one shared
+  pool, the station goes dark, and a different random one lights up.
+- **Caught**: honor system. The robber taps *I'm caught*, or the referee marks them.
+  They must spend `jailSeconds` (30) **inside the prison** circle. The timer pauses when
+  they are outside it, and they can't do tasks until they're out. After that they get
+  `immunitySeconds` (60) of immunity.
+- **Win**: robbers reach `targetScore` → robbers win. Time runs out → cops win.
+- **Referee overrides**: credit a live station, catch or release a robber, adjust the
+  score by ±5 or ±10.
+- **GPS tips**: put stations and the prison in open sky, at least 60 m apart. If a phone
+  reports worse than ±35 m accuracy, it gets "Weak GPS — step into the open" and can't
+  start a task.
+
 New players: the **`/how`** page is a full tutorial. The host can show a **QR
 code** in the lobby (Invite players section) so phones join by scanning.
 
