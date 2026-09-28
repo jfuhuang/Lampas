@@ -90,6 +90,41 @@ export default function HowToPlay() {
         </ul>
       </Card>
 
+      <Card title="💰 Heist mode (cops & robbers)">
+        <p className="mb-2">
+          The host can switch the lobby to <b>Heist</b>. Teams become <b>Cops</b> or{' '}
+          <b>Robbers</b>.
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <b>Scatter</b>: robbers spread out while cops wait at base. Then the <b>heist</b>{' '}
+            starts.
+          </li>
+          <li>
+            Robbers see a few <b>live stations</b> on their map (cops never do). Get within ~20 m and
+            tap <b>Start</b> for a quick mini-game: wires, keycard, keypad, download, reactor,
+            or safe dial. Finish it to add points to the robbers' shared <b>loot</b>. That station
+            then goes dark and a new one lights up somewhere else.
+          </li>
+          <li>
+            Cops catch robbers with a <b>flashlight</b>. The caught robber taps{' '}
+            <b>I'm caught</b> (honor system), then walks to the <b>prison</b>. They have to stay
+            inside it for 30 s, and they can't do tasks until they're out.
+          </li>
+          <li>
+            After prison, a robber is <b>immune</b> for 60 s (🛡). Cops can see who is immune.
+          </li>
+          <li>
+            If the loot reaches the target, <b>robbers win</b>. If the clock runs out first,{' '}
+            <b>cops win</b>.
+          </li>
+          <li>
+            GPS is fuzzy. If Start says <i>weak GPS</i>, step into the open sky. The referee can
+            credit a station or free a prisoner by hand.
+          </li>
+        </ul>
+      </Card>
+
       <a
         href="/"
         className="rounded-xl bg-lamp px-4 py-4 text-center text-lg font-black text-night active:scale-95"

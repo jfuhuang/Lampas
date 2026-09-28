@@ -70,8 +70,10 @@ const game = new Game((event, payload, scope = {}) => {
 // refreshes here so moving dots stay live without extra traffic.
 setInterval(() => {
   game.tick();
-  if (game.activeEvent?.type === 'reveal' || game.hasExposed()) {
-    game.broadcastState(); // dots move live during reveal / while someone's exposed
+  if (game.activeEvent?.type === 'reveal' || game.hasExposed() || game.hasJailed()) {
+    // dots move live during reveal / while someone's exposed; prison
+    // progress bars tick live while a robber is serving time
+    game.broadcastState();
   } else if (game.phase !== 'lobby') {
     emitStateToHosts();
   }
@@ -123,8 +125,8 @@ io.on('connection', (socket) => {
   });
 
   // Loss-tolerant, fire-and-forget. No acks, ever.
-  socket.on('pos:update', ({ lat, lng } = {}) => {
-    if (socket.data.playerId) game.updatePosition(socket.data.playerId, { lat, lng });
+  socket.on('pos:update', ({ lat, lng, accuracy } = {}) => {
+    if (socket.data.playerId) game.updatePosition(socket.data.playerId, { lat, lng, accuracy });
   });
 
   socket.on('team:join', ({ teamName } = {}) => {
@@ -154,6 +156,26 @@ io.on('connection', (socket) => {
     if (socket.data.playerId) game.tagPlayer(socket.data.playerId, socket.data.playerId);
   });
 
+  // ── Heist (cops & robbers) — robber task flow ────────────────────────
+  // Acked: the phone needs the verdict (which mini-game, or why not).
+  const reply = (ack, res) => typeof ack === 'function' && ack(res);
+
+  socket.on('task:start', ({ stationId } = {}, ack) => {
+    if (!socket.data.playerId) return reply(ack, { error: 'Not joined' });
+    reply(ack, game.startTask(socket.data.playerId, stationId));
+  });
+
+  socket.on('task:complete', ({ stationId } = {}, ack) => {
+    if (!socket.data.playerId) return reply(ack, { error: 'Not joined' });
+    reply(ack, game.completeTask(socket.data.playerId, stationId));
+  });
+
+  socket.on('task:cancel', () => {
+    if (!socket.data.playerId) return;
+    game.cancelTask(socket.data.playerId);
+    game.broadcastState();
+  });
+
   // ── Host-only actions ────────────────────────────────────────────────
   const isHost = () => game.players.get(socket.data.playerId)?.isHost;
 
@@ -165,10 +187,46 @@ io.on('connection', (socket) => {
     if (isHost()) game.trigger(type, opts);
   });
 
-  socket.on('host:config', ({ boundary, settings } = {}) => {
+  socket.on('host:config', ({ boundary, settings, mode } = {}) => {
     if (!isHost()) return;
-    game.configure({ boundary, settings });
+    game.configure({ boundary, settings, mode });
     game.broadcastState();
+  });
+
+  // Heist lobby setup: stations + prison (lobby-only, enforced in heist.js).
+  socket.on('host:station:add', ({ lat, lng, points, game: miniGame } = {}) => {
+    if (!isHost()) return;
+    game.addStation({ lat, lng, points, game: miniGame });
+    game.broadcastState();
+  });
+
+  socket.on('host:station:update', ({ stationId, ...changes } = {}) => {
+    if (!isHost()) return;
+    game.updateStation(stationId, changes);
+    game.broadcastState();
+  });
+
+  socket.on('host:station:remove', ({ stationId } = {}) => {
+    if (!isHost()) return;
+    game.removeStation(stationId);
+    game.broadcastState();
+  });
+
+  socket.on('host:prison', ({ lat, lng } = {}) => {
+    if (!isHost()) return;
+    game.setPrison({ lat, lng });
+    game.broadcastState();
+  });
+
+  // Referee overrides — the safety net when GPS won't cooperate.
+  socket.on('host:heist', ({ action, playerId, stationId, delta } = {}) => {
+    if (!isHost() || !game.isHeist()) return;
+    if (action === 'catch') game.catchRobber(playerId, socket.data.playerId);
+    else if (action === 'release') game.releaseRobber(playerId);
+    else if (action === 'credit') {
+      const s = game.heist.stations.get(stationId);
+      if (s?.active && game.phase === 'seek') game.creditStation(s);
+    } else if (action === 'score') game.adjustScore(delta);
   });
 
   socket.on('host:setTeamRole', ({ teamId, role } = {}) => {

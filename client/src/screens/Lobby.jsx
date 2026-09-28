@@ -54,6 +54,11 @@ export default function Lobby() {
           Waiting for the host to start. You're <b className="text-neutral-200">{you.name}</b> on{' '}
           <b className="text-neutral-200">{you.teamName}</b>.
         </p>
+        {game.mode === 'heist' && (
+          <p className="mt-2 inline-block rounded-full bg-violet-950 px-3 py-1 text-sm font-bold text-violet-200">
+            🚓 Heist mode — you're a {you.role === 'seeker' ? 'COP' : 'ROBBER'}
+          </p>
+        )}
       </header>
 
       <TeamList teams={game.teams} youId={you.id} />
@@ -99,6 +104,8 @@ export default function Lobby() {
  * only) add ✕ per player and a 🗑 per team.
  */
 export function TeamList({ teams, youId, onKick, onDeleteTeam }) {
+  const heist = useGame().game?.mode === 'heist';
+  const roleLabel = (role) => (heist ? (role === 'seeker' ? 'cops' : 'robbers') : role);
   return (
     <div className="flex flex-col gap-3">
       {teams.map((team) => (
@@ -111,7 +118,7 @@ export function TeamList({ teams, youId, onKick, onDeleteTeam }) {
                   team.role === 'seeker' ? 'bg-red-900 text-red-200' : 'bg-emerald-900 text-emerald-200'
                 }`}
               >
-                {team.role}
+                {roleLabel(team.role)}
               </span>
               {onDeleteTeam && (
                 <button

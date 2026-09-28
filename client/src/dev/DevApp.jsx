@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { GameContext } from '../context/GameContext.jsx';
 import { socket, setEmitInterceptor } from '../lib/socket.js';
 import { unlockAudio, playRevealTone, vibrate } from '../lib/geo.js';
-import { makeScenario, applyAction, tick, toGamePayload, personas } from './engine.js';
+import { makeScenario, applyAction, tick, toGamePayload, personas, seedHeist } from './engine.js';
 import JoinScreen from '../screens/JoinScreen.jsx';
 import Lobby from '../screens/Lobby.jsx';
 import HiderView, { GameOver } from '../screens/HiderView.jsx';
 import SeekerView from '../screens/SeekerView.jsx';
+import RobberView from '../screens/RobberView.jsx';
+import CopView from '../screens/CopView.jsx';
 import HostView from '../screens/HostView.jsx';
 import RefereeView from '../screens/RefereeView.jsx';
 import TorchOverlay from '../components/TorchOverlay.jsx';
@@ -24,10 +26,20 @@ import HiderTeamsBadge from '../components/HiderTeamsBadge.jsx';
  *   the chosen persona would see in the current phase.
  */
 
-const SCREENS = ['auto', 'join', 'lobby', 'hider', 'seeker', 'host', 'referee', 'over'];
+const SCREENS = ['auto', 'join', 'lobby', 'hider', 'seeker', 'robber', 'cop', 'host', 'referee', 'over'];
 
 export default function DevApp() {
-  const [state, setState] = useState(makeScenario);
+  const [state, setStateRaw] = useState(makeScenario);
+  // Mirror for synchronous reads: acked events (task:start/complete) need
+  // their result immediately, not after React flushes the update.
+  const stateRef = useRef(state);
+  const setState = useCallback((next) => {
+    setStateRaw((prev) => {
+      const s = typeof next === 'function' ? next(prev) : next;
+      stateRef.current = s;
+      return s;
+    });
+  }, []);
   const [screen, setScreen] = useState('auto');
   const [toast, setToast] = useState(null);
   const [running, setRunning] = useState(true);
@@ -37,8 +49,11 @@ export default function DevApp() {
   }, []);
 
   const dispatch = useCallback(
-    (event, payload) => {
-      setState((s) => applyAction(s, event, payload));
+    (event, payload, ack) => {
+      const next = applyAction(stateRef.current, event, payload);
+      stateRef.current = next;
+      setState(next);
+      if (typeof ack === 'function') setTimeout(() => ack(next.lastAck ?? {}), 150); // fake RTT
       // Side effects the real GameProvider would produce:
       if (event === 'host:trigger' && payload?.type === 'sound') {
         unlockAudio(); // button click = the required gesture
@@ -50,12 +65,12 @@ export default function DevApp() {
         showToast('THE ZONE IS SHRINKING — check the boundary!', 'warn');
       }
     },
-    [showToast],
+    [showToast, setState],
   );
 
   // Swallow every socket.emit from the real screens; kill the real socket.
   useEffect(() => {
-    setEmitInterceptor((event, payload) => dispatch(event, payload));
+    setEmitInterceptor((event, payload, ack) => dispatch(event, payload, ack));
     socket.disconnect();
     return () => {
       setEmitInterceptor(null);
@@ -68,7 +83,7 @@ export default function DevApp() {
     if (!running) return undefined;
     const t = setInterval(() => setState((s) => tick(s)), 1000);
     return () => clearInterval(t);
-  }, [running]);
+  }, [running, setState]);
 
   const game = useMemo(() => toGamePayload(state), [state]);
   const torchActive = game.activeEvent?.type === 'torch';
@@ -128,6 +143,10 @@ function ScreenFor({ screen, game }) {
       return <HiderView />;
     case 'seeker':
       return <SeekerView />;
+    case 'robber':
+      return <RobberView />;
+    case 'cop':
+      return <CopView />;
     case 'host':
       return <HostView />;
     case 'referee':
@@ -137,6 +156,7 @@ function ScreenFor({ screen, game }) {
     default: // auto — mirror App.jsx routing
       if (you.isHost) return <HostView />;
       if (game.phase === 'lobby') return <Lobby />;
+      if (game.mode === 'heist') return you.role === 'seeker' ? <CopView /> : <RobberView />;
       if (you.role === 'seeker') return <SeekerView />;
       return <HiderView />;
   }
@@ -154,6 +174,31 @@ function DevBar({ state, setState, screen, setScreen, running, setRunning, dispa
     if (state.phase !== 'seek') return showToast('Bot catch needs seek phase', 'warn');
     dispatch('tag:player', { targetPlayerId: victim.players[0].id });
     showToast(`${victim.players[0].name} caught — team ${victim.name} are now seekers!`, 'alert');
+  };
+
+  // Heist drivers: teleport YOUR dot (no GPS in dev) + jail a bot robber.
+  const teleport = (pt) =>
+    setState((s) => ({
+      ...s,
+      positions: s.positions.map((p) =>
+        p.playerId === s.youId ? { ...p, lat: pt.lat, lng: pt.lng, at: Date.now() } : p,
+      ),
+    }));
+  const goStation = () => {
+    const st = state.heist.stations.find((x) => x.active);
+    if (!st) return showToast('No live station — start scatter/heist first', 'warn');
+    teleport(st);
+  };
+  const goPrison = () =>
+    state.heist.prison ? teleport(state.heist.prison) : showToast('No prison placed', 'warn');
+  const botJail = () => {
+    const bot = state.teams
+      .filter((t) => t.role === 'hider')
+      .flatMap((t) => t.players)
+      .find((p) => p.id !== state.youId && (state.heist.robbers[p.id]?.status ?? 'free') === 'free');
+    if (!bot || state.phase !== 'seek') return showToast('Needs heist phase + a free bot robber', 'warn');
+    dispatch('host:heist', { action: 'catch', playerId: bot.id });
+    showToast(`🚨 ${bot.name} was caught — off to prison!`, 'alert');
   };
 
   const oobWarn = () =>
@@ -228,6 +273,25 @@ function DevBar({ state, setState, screen, setScreen, running, setRunning, dispa
             ⚠ OOB warn
           </button>
         </div>
+
+        {/* Row 4: heist (cops & robbers) */}
+        <div className="flex flex-wrap gap-1">
+          <button
+            onClick={() => setState((s) => seedHeist(s))}
+            className={chip(state.mode === 'heist', 'violet')}
+          >
+            💰 heist mode + layout
+          </button>
+          <button onClick={goStation} className={chip(false, 'violet')}>
+            📍 me → station
+          </button>
+          <button onClick={goPrison} className={chip(false, 'violet')}>
+            🔒 me → prison
+          </button>
+          <button onClick={botJail} className={chip(false, 'red')}>
+            🚨 bot jail
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -239,6 +303,7 @@ function chip(active, hue = 'fuchsia') {
     sky: 'bg-sky-600 text-white',
     amber: 'bg-amber-500 text-night',
     red: 'bg-red-600 text-white',
+    violet: 'bg-violet-600 text-white',
   }[hue];
   return `rounded-md px-2 py-1 text-xs font-bold active:scale-95 ${
     active ? on : 'bg-neutral-800 text-neutral-300'

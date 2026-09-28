@@ -4,6 +4,8 @@ import RefereeView from './RefereeView.jsx';
 import Lobby from './Lobby.jsx';
 import HiderView from './HiderView.jsx';
 import SeekerView from './SeekerView.jsx';
+import RobberView from './RobberView.jsx';
+import CopView from './CopView.jsx';
 
 /**
  * Host view: the host is BOTH referee and a player on a team. Two tabs —
@@ -12,7 +14,7 @@ import SeekerView from './SeekerView.jsx';
  * so hosting doesn't lock them out of playing the game.
  */
 export default function HostView() {
-  const { you, phase } = useGame();
+  const { game, you, phase } = useGame();
   const [tab, setTab] = useState('referee'); // 'referee' | 'play'
 
   // Hosts join teamless (referee-only) — no team, no Play tab, no tab bar.
@@ -20,6 +22,7 @@ export default function HostView() {
 
   let playScreen;
   if (phase === 'lobby') playScreen = <Lobby />;
+  else if (game.mode === 'heist') playScreen = you.role === 'seeker' ? <CopView /> : <RobberView />;
   else if (you.role === 'seeker') playScreen = <SeekerView />;
   else playScreen = <HiderView />;
 

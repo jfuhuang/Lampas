@@ -151,6 +151,14 @@ export function GameProvider({ children }) {
         'warn',
       );
     };
+    // Heist (cops & robbers) — fast-path toasts; state still comes via game:state.
+    const onHeistCaught = ({ name }) => showToast(`🚨 ${name} was caught — off to prison!`, 'alert');
+    const onHeistReleased = () => {
+      vibrate([100, 60, 100]);
+      showToast('🛡 Released! You are IMMUNE for a bit — get back to work', 'info');
+    };
+    const onHeistScore = ({ name, points, score }) =>
+      showToast(`💰 +${points}${name ? ` — ${name} cracked a station` : ''} (total ${score})`, 'info');
     const onShrink = () => showToast('THE ZONE IS SHRINKING — check the boundary!', 'warn');
     const onKicked = ({ reason, teamName } = {}) => {
       // Drop the stored playerId so we don't silently auto-rejoin; creds
@@ -177,6 +185,9 @@ export function GameProvider({ children }) {
     socket.on('team:converted', onConverted);
     socket.on('boundary:warning', onWarning);
     socket.on('kicked', onKicked);
+    socket.on('heist:score', onHeistScore);
+    socket.on('heist:released', onHeistReleased);
+    socket.on('heist:caught', onHeistCaught);
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     // The module-level connect handler may have resynced BEFORE these
@@ -194,6 +205,9 @@ export function GameProvider({ children }) {
       socket.off('team:converted', onConverted);
       socket.off('boundary:warning', onWarning);
       socket.off('kicked', onKicked);
+      socket.off('heist:score', onHeistScore);
+      socket.off('heist:released', onHeistReleased);
+      socket.off('heist:caught', onHeistCaught);
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
     };

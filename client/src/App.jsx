@@ -4,6 +4,8 @@ import Lobby from './screens/Lobby.jsx';
 import PickTeam from './screens/PickTeam.jsx';
 import HiderView from './screens/HiderView.jsx';
 import SeekerView from './screens/SeekerView.jsx';
+import RobberView from './screens/RobberView.jsx';
+import CopView from './screens/CopView.jsx';
 import HostView from './screens/HostView.jsx';
 import TorchOverlay from './components/TorchOverlay.jsx';
 import Toast from './components/Toast.jsx';
@@ -40,6 +42,7 @@ function Router() {
   if (you.isHost) return <HostView />;
   if (phase === 'lobby') return <Lobby />;
   if (!you.teamId) return <PickTeam />;
+  if (game?.mode === 'heist') return you.role === 'seeker' ? <CopView /> : <RobberView />;
   if (you.role === 'seeker') return <SeekerView />;
   return <HiderView />;
 }
