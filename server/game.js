@@ -63,6 +63,8 @@ export class Game {
     this.teams = new Map(); // teamId → team
     this.activeEvent = null; // { type, endsAt }
     this.nextAutoEventAt = null; // when autoEvents is on: next curveball timestamp
+    this.lastAutoType = null;
+    this.autoBaseRadiusM = null; // boundary radius when the round started (auto-shrink floor)
     this.winnerTeamId = null;
     this.startedAt = null;
     this.seekStartedAt = null;
@@ -376,6 +378,8 @@ export class Game {
       this.endHeistRound();
     } else if (phase === 'hide') {
       this.startedAt = Date.now();
+      this.autoBaseRadiusM = this.boundary?.radiusM ?? null;
+      this.lastAutoType = null;
       if (this.isHeist()) this.startHeistRound();
       this.phaseEndsAt = Date.now() + this.settings.hideSeconds * 1000;
     } else if (phase === 'seek') {
@@ -568,7 +572,18 @@ export class Game {
 
   /** Fire one random curveball and re-arm the clock for the next one. */
   autoTrigger(now) {
-    const type = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
+    // Auto shrink must never make the game unplayable: it's skipped once the
+    // next shrink would take the zone below half its round-start size (min 100m).
+    // Also never repeat the previous auto type, so the mix stays varied.
+    const r = this.boundary?.radiusM;
+    const floor = Math.max(100, (this.autoBaseRadiusM ?? 0) * 0.5);
+    const canShrink = r != null && r * this.settings.shrinkFactor >= floor;
+    const pool = EVENT_TYPES.filter(
+      (t) => t !== this.lastAutoType && (t !== 'shrink' || canShrink),
+    );
+    const choices = pool.length ? pool : EVENT_TYPES.filter((t) => t !== 'shrink');
+    const type = choices[Math.floor(Math.random() * choices.length)];
+    this.lastAutoType = type;
     this.trigger(type);
     this.scheduleNextAutoEvent(now);
   }

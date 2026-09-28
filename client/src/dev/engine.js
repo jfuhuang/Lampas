@@ -47,9 +47,9 @@ function approxDistM(a, b) {
   return Math.hypot(dLat, dLng);
 }
 
-/** Fresh scenario: 3 teams, 6 players, boundary at Snow Mountain Ranch, CO. */
+/** Fresh scenario: 3 teams, 6 players, boundary at Iowa State University, Ames, IA. */
 export function makeScenario() {
-  const center = { lat: 39.9865, lng: -105.9333 };
+  const center = { lat: 42.0267, lng: -93.6465 };
   const boundary = { center, radiusM: 180 };
 
   const mk = (name, isHost = false) => ({
