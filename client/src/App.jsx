@@ -1,5 +1,6 @@
 import { GameProvider, useGame } from './context/GameContext.jsx';
 import JoinScreen from './screens/JoinScreen.jsx';
+import LobbyBrowser from './screens/LobbyBrowser.jsx';
 import Lobby from './screens/Lobby.jsx';
 import PickTeam from './screens/PickTeam.jsx';
 import HiderView from './screens/HiderView.jsx';
@@ -39,6 +40,7 @@ function Router() {
   const { game, you, phase, joined } = useGame();
 
   if (!joined || !you) return <JoinScreen />;
+  if (game?.browse) return <LobbyBrowser />;
   if (you.isHost) return <HostView />;
   if (phase === 'lobby') return <Lobby />;
   if (!you.teamId) return <PickTeam />;

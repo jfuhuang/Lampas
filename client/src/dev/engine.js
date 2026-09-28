@@ -370,15 +370,16 @@ export function applyAction(state, event, payload = {}) {
       if (t && s.phase === 'lobby') t.role = payload.role;
       break;
     }
+    case 'team:create':
     case 'team:join': {
       const p = you(s);
       const from = findTeamOf(s, s.youId);
-      let to = s.teams.find((t) => t.name.toLowerCase() === payload.teamName?.toLowerCase());
-      if (!to) {
-        to = { id: id('t'), name: payload.teamName, role: 'hider', caughtAt: null, players: [] };
+      let to = s.teams.find((t) => t.id === payload.teamId);
+      if (!to && payload.name) {
+        to = { id: id('t'), name: payload.name, role: 'hider', caughtAt: null, players: [] };
         s.teams.push(to);
       }
-      if (p && from && to !== from) {
+      if (p && from && to && to !== from) {
         from.players = from.players.filter((x) => x.id !== p.id);
         to.players.push(p);
         const pos = s.positions.find((x) => x.playerId === p.id);

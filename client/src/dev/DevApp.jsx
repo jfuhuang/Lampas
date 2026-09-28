@@ -101,7 +101,13 @@ export default function DevApp() {
     toast,
     dismissToast: () => setToast(null),
     showToast,
-    join: (name, teamName) => dispatch('join', { name, teamName }),
+    join: (name) => dispatch('join', { name }),
+    lobbies: [],
+    request: (event, payload) => {
+      dispatch(event, payload);
+      return Promise.resolve({});
+    },
+    leaveLobby: () => showToast('Dev mode — no lobbies here', 'info'),
     logout: () => showToast('Dev mode — logout is a no-op here', 'info'),
   };
 

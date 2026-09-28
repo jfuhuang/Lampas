@@ -11,12 +11,13 @@ import {
 import { useGame } from '../context/GameContext.jsx';
 
 /**
- * Player lobby: see teams forming, tap Ready. The Ready tap doubles as the
+ * Player lobby (step 3): make a team or join one, then tap Ready. The Ready tap doubles as the
  * user gesture that unlocks audio and grabs the screen wake lock — both
  * REQUIRE a gesture on mobile, so they piggyback here (platform constraint).
  */
 export default function Lobby() {
-  const { game, you, logout } = useGame();
+  const { game, you, logout, request, leaveLobby } = useGame();
+  const [teamName, setTeamName] = useState('');
   const [torchTest, setTorchTest] = useState('idle'); // idle|testing|on|failed
 
   // Field diagnostic: verify the phone's torch BEFORE the game, inside a
@@ -35,6 +36,16 @@ export default function Lobby() {
     }
   };
 
+  const max = game.settings?.maxTeamSize ?? 0;
+  const unassigned = game.unassigned ?? [];
+
+  const createTeam = async (e) => {
+    e.preventDefault();
+    if (!teamName.trim()) return;
+    const res = await request('team:create', { name: teamName.trim() });
+    if (!res.error) setTeamName('');
+  };
+
   const handleReady = async () => {
     // One tap unlocks every gesture-gated API: audio, wake lock, and the
     // camera permission for the Android torch (prompt now, not mid-event).
@@ -51,8 +62,14 @@ export default function Lobby() {
         <div className="lamp-flicker text-4xl">🏮</div>
         <h1 className="text-2xl font-black text-lamp">Lobby</h1>
         <p className="text-sm text-neutral-400">
-          Waiting for the host to start. You're <b className="text-neutral-200">{you.name}</b> on{' '}
-          <b className="text-neutral-200">{you.teamName}</b>.
+          Waiting for the host to start. You're <b className="text-neutral-200">{you.name}</b>
+          {you.teamName ? (
+            <>
+              {' '}on <b className="text-neutral-200">{you.teamName}</b>.
+            </>
+          ) : (
+            ' — make a team or join one below.'
+          )}
         </p>
         {game.mode === 'heist' && (
           <p className="mt-2 inline-block rounded-full bg-violet-950 px-3 py-1 text-sm font-bold text-violet-200">
@@ -61,16 +78,54 @@ export default function Lobby() {
         )}
       </header>
 
-      <TeamList teams={game.teams} youId={you.id} />
+      <TeamList
+        teams={game.teams}
+        youId={you.id}
+        youTeamId={you.teamId}
+        maxSize={max}
+        onJoin={(t) => request('team:join', { teamId: t.id })}
+        onLeave={() => socket.emit('team:leave')}
+      />
+      {game.teams.length === 0 && (
+        <p className="text-center text-sm text-neutral-500">No teams yet — create the first one.</p>
+      )}
+      {unassigned.length > 0 && (
+        <p className="text-center text-xs text-neutral-500">
+          Not on a team yet: {unassigned.map((p) => p.name).join(', ')}
+        </p>
+      )}
+
+      <form onSubmit={createTeam} className="flex gap-2">
+        <input
+          className="min-w-0 flex-1 rounded-xl border border-neutral-700 bg-panel px-4 py-3 outline-none focus:border-lamp"
+          value={teamName}
+          onChange={(e) => setTeamName(e.target.value)}
+          placeholder="New team name"
+          maxLength={24}
+          autoComplete="off"
+        />
+        <button
+          type="submit"
+          disabled={!teamName.trim()}
+          className="rounded-xl bg-neutral-800 px-4 py-3 font-bold active:scale-95 disabled:opacity-40"
+        >
+          + Create
+        </button>
+      </form>
 
       <div className="mt-auto flex flex-col gap-2">
         <button
           onClick={handleReady}
-          className={`rounded-xl px-4 py-5 text-xl font-black active:scale-95 ${
+          disabled={!you.teamId}
+          className={`rounded-xl disabled:opacity-40 px-4 py-5 text-xl font-black active:scale-95 ${
             you.ready ? 'bg-green-600 text-white' : 'bg-lamp text-night'
           }`}
         >
-          {you.ready ? '✓ Ready — tap to unready' : "I'm ready"}
+          {!you.teamId
+            ? 'Pick a team to get ready'
+            : you.ready
+              ? '✓ Ready — tap to unready'
+              : "I'm ready"}
         </button>
         <button
           onClick={testTorch}
@@ -90,8 +145,11 @@ export default function Lobby() {
           <a href="/how" className="px-1 py-2 underline">
             How to play
           </a>
+          <button onClick={leaveLobby} className="px-1 py-2 underline active:scale-95">
+            ← Lobbies
+          </button>
           <button onClick={logout} className="px-1 py-2 underline active:scale-95">
-            Log out (forget me on this phone)
+            Log out
           </button>
         </div>
       </div>
@@ -100,10 +158,22 @@ export default function Lobby() {
 }
 
 /**
- * `onKick(player)` (host, any phase) / `onDeleteTeam(team)` (host, lobby
- * only) add ✕ per player and a 🗑 per team.
+ * Player mode: `onJoin(team)` / `onLeave()` (+ `youTeamId`) add Join / Leave
+ * buttons. Host mode: `onKick(player)` (any phase), `onDeleteTeam(team)` and
+ * `onMove(player, teamId|null)` (lobby only) add ✕, 🗑 and a move dropdown.
+ * `maxSize` (0 = none) shows n/max and disables Join on full teams.
  */
-export function TeamList({ teams, youId, onKick, onDeleteTeam }) {
+export function TeamList({
+  teams,
+  youId,
+  youTeamId,
+  maxSize = 0,
+  onJoin,
+  onLeave,
+  onKick,
+  onDeleteTeam,
+  onMove,
+}) {
   const heist = useGame().game?.mode === 'heist';
   const roleLabel = (role) => (heist ? (role === 'seeker' ? 'cops' : 'robbers') : role);
   return (
@@ -120,6 +190,27 @@ export function TeamList({ teams, youId, onKick, onDeleteTeam }) {
               >
                 {roleLabel(team.role)}
               </span>
+              <span className="text-xs font-semibold text-neutral-400">
+                {team.players.length}
+                {maxSize > 0 ? `/${maxSize}` : ''}
+              </span>
+              {onJoin && team.id !== youTeamId && (
+                <button
+                  onClick={() => onJoin(team)}
+                  disabled={maxSize > 0 && team.players.length >= maxSize}
+                  className="rounded-lg bg-lamp px-3 py-1 text-xs font-black text-night active:scale-95 disabled:opacity-40"
+                >
+                  {maxSize > 0 && team.players.length >= maxSize ? 'Full' : 'Join'}
+                </button>
+              )}
+              {onLeave && team.id === youTeamId && (
+                <button
+                  onClick={onLeave}
+                  className="rounded-lg border border-neutral-600 px-3 py-1 text-xs font-bold text-neutral-300 active:scale-95"
+                >
+                  Leave
+                </button>
+              )}
               {onDeleteTeam && (
                 <button
                   onClick={() => onDeleteTeam(team)}
@@ -142,6 +233,21 @@ export function TeamList({ teams, youId, onKick, onDeleteTeam }) {
                 {p.isHost && '👑 '}
                 {p.name}
                 {p.ready ? ' ✓' : ''}
+                {onMove && !p.isHost && (
+                  <select
+                    value={team.id}
+                    onChange={(e) => onMove(p, e.target.value || null)}
+                    aria-label={`Move ${p.name} to another team`}
+                    className="ml-1 w-6 rounded bg-neutral-700 text-xs text-neutral-200"
+                  >
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                    <option value="">— no team —</option>
+                  </select>
+                )}
                 {onKick && !p.isHost && (
                   <button
                     onClick={() => onKick(p)}

@@ -23,7 +23,7 @@ export function clearPlayerId() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-// Name + team persist too, so a phone can silently re-join after a server
+// Username persists too, so a phone can silently re-join after a server
 // restart (playerId is server-lifetime only; creds outlive it).
 const CREDS_KEY = 'lampas.creds';
 
@@ -37,8 +37,8 @@ export function getStoredCreds() {
 
 // hostPass rides along (plaintext — party-game stakes, not real auth) so a
 // host phone re-earns the referee role on silent re-join after a restart.
-export function storeCreds({ name, teamName, hostPass }) {
-  localStorage.setItem(CREDS_KEY, JSON.stringify({ name, teamName, hostPass }));
+export function storeCreds({ name, hostPass }) {
+  localStorage.setItem(CREDS_KEY, JSON.stringify({ name, hostPass }));
 }
 
 export function clearCreds() {

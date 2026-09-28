@@ -1,18 +1,17 @@
-import { socket } from '../lib/socket.js';
 import { useGame } from '../context/GameContext.jsx';
 
 /**
- * Shown when a player is joined but teamless mid-game — either they just
- * joined after the round started, or their old team name no longer exists
- * (kicked/deleted). No free-text team creation here: the round is already
+ * Shown when a player is in a lobby but teamless mid-game — they joined
+ * after the round started. No team creation here: the round is already
  * live, so they can only slot into a team that already exists
- * (server enforces this too — see game.js joinTeam).
+ * (server enforces this too — see game.js createTeam / joinTeamById).
  */
 export default function PickTeam() {
-  const { game, you, logout } = useGame();
+  const { game, you, request, leaveLobby } = useGame();
   const teams = game.teams.filter((t) => t.players.length > 0);
 
-  const pick = (team) => socket.emit('team:join', { teamName: team.name });
+  const max = game.settings?.maxTeamSize ?? 0;
+  const pick = (team) => request('team:join', { teamId: team.id });
 
   return (
     <div className="flex flex-1 flex-col justify-center gap-6 py-10">
@@ -30,7 +29,8 @@ export default function PickTeam() {
           <button
             key={t.id}
             onClick={() => pick(t)}
-            className="flex items-center justify-between rounded-xl border border-neutral-800 bg-panel px-4 py-3 text-left active:scale-95"
+            disabled={max > 0 && t.players.length >= max}
+            className="flex items-center justify-between rounded-xl border border-neutral-800 bg-panel px-4 py-3 text-left active:scale-95 disabled:opacity-40"
           >
             <span className="font-bold">{t.name}</span>
             <span
@@ -38,7 +38,7 @@ export default function PickTeam() {
                 t.role === 'seeker' ? 'bg-red-900 text-red-200' : 'bg-emerald-900 text-emerald-200'
               }`}
             >
-              {t.role} · {t.players.length}
+              {t.role} · {t.players.length}{max > 0 ? `/${max}` : ''}
             </span>
           </button>
         ))}
@@ -49,8 +49,8 @@ export default function PickTeam() {
         )}
       </div>
 
-      <button onClick={logout} className="mx-auto px-3 py-1 text-xs font-semibold text-neutral-500 underline active:scale-95">
-        Not you? Log out
+      <button onClick={leaveLobby} className="mx-auto px-3 py-1 text-xs font-semibold text-neutral-500 underline active:scale-95">
+        ← Back to lobbies
       </button>
     </div>
   );

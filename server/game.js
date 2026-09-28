@@ -24,6 +24,7 @@ const DEFAULT_SETTINGS = {
   boundaryMarginM: 10, // GPS-noise margin added to the radius
   autoEvents: 0, // 1 = referee panel fires random curveballs on a timer
   autoEventIntervalSeconds: 90, // gap between auto-fired curveballs
+  maxTeamSize: 0, // players per team; 0 = unlimited (host sets in the lobby)
   ...HEIST_SETTINGS, // heist-mode knobs (server/heist.js); ignored in hide & seek
 };
 
@@ -126,17 +127,143 @@ export class Game {
     );
     if (!team) {
       if (this.phase !== 'lobby') return null;
-      team = {
-        id: genId('t'),
-        name: cleanName,
-        role: 'hider', // 'hider' | 'seeker'
-        caughtAt: null, // set when converted during seek phase
-        caughtBy: null, // stats label: self / referee (name) / boundary penalty
-      };
-      this.teams.set(team.id, team);
+      team = this.makeTeam(cleanName);
     }
+    if (team.id !== player.teamId && this.isTeamFull(team.id)) return null;
+    const oldTeamId = player.teamId;
     player.teamId = team.id;
+    if (oldTeamId && oldTeamId !== team.id) this.pruneEmptyTeams();
     return team;
+  }
+
+  /** True when the host's per-team cap (settings.maxTeamSize, 0 = off) is reached. */
+  isTeamFull(teamId) {
+    const max = this.settings.maxTeamSize;
+    if (!(max > 0)) return false;
+    return this.teamSize(teamId) >= max;
+  }
+
+  teamSize(teamId) {
+    let n = 0;
+    for (const p of this.players.values()) if (p.teamId === teamId && !p.isHost) n++;
+    return n;
+  }
+
+  /**
+   * Player creates a brand-new team and joins it — LOBBY ONLY. Returns
+   * `{ team }` or `{ error }` (duplicate name, wrong phase, host).
+   */
+  createTeam(playerId, teamName) {
+    const player = this.players.get(playerId);
+    if (!player || player.isHost) return { error: 'Not allowed' };
+    if (this.phase !== 'lobby') return { error: 'The round already started' };
+    const cleanName = String(teamName ?? '').trim().slice(0, 24);
+    if (!cleanName) return { error: 'Give your team a name' };
+    if (this.findTeamByName(cleanName)) return { error: `A team named "${cleanName}" already exists` };
+    const team = this.makeTeam(cleanName);
+    const oldTeamId = player.teamId;
+    player.teamId = team.id;
+    if (oldTeamId) this.pruneEmptyTeams();
+    this.logEvent('team', `${player.name} created team ${team.name}`);
+    return { team };
+  }
+
+  /** Player picks a team by id (team list tap). Respects the size cap. */
+  joinTeamById(playerId, teamId) {
+    const player = this.players.get(playerId);
+    const team = this.teams.get(teamId);
+    if (!player || player.isHost || !team) return { error: 'Team not found' };
+    if (player.teamId === team.id) return { team };
+    if (this.isTeamFull(team.id)) return { error: `${team.name} is full` };
+    const oldTeamId = player.teamId;
+    player.teamId = team.id;
+    if (oldTeamId) this.pruneEmptyTeams();
+    this.logEvent('team', `${player.name} joined team ${team.name}`);
+    return { team };
+  }
+
+  /**
+   * Player leaves their team — LOBBY ONLY (mid-game the roster is locked;
+   * a dropped connection never comes through here). Empty team → deleted.
+   */
+  leaveTeam(playerId) {
+    const player = this.players.get(playerId);
+    if (!player || !player.teamId || this.phase !== 'lobby') return false;
+    player.teamId = null;
+    player.ready = false;
+    this.pruneEmptyTeams();
+    return true;
+  }
+
+  /** Host moves a player into a team (or `null` = unassigned). Lobby only. */
+  movePlayer(playerId, teamId) {
+    const player = this.players.get(playerId);
+    if (!player || player.isHost || this.phase !== 'lobby') return { error: 'Not allowed' };
+    if (teamId != null) {
+      if (!this.teams.has(teamId)) return { error: 'Team not found' };
+      if (player.teamId !== teamId && this.isTeamFull(teamId)) {
+        return { error: `${this.teams.get(teamId).name} is full` };
+      }
+    }
+    player.teamId = teamId ?? null;
+    this.pruneEmptyTeams();
+    return {};
+  }
+
+  /**
+   * Host shuffles every non-host player into teams. Keeps existing teams
+   * (names/roles), adds "Team N" ones as needed so the size cap holds, and
+   * deals round-robin so sizes differ by at most one. Lobby only.
+   */
+  randomizeTeams() {
+    if (this.phase !== 'lobby') return false;
+    const players = [...this.players.values()].filter((p) => !p.isHost);
+    if (!players.length) return false;
+    for (let i = players.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [players[i], players[j]] = [players[j], players[i]];
+    }
+    const max = this.settings.maxTeamSize;
+    let teams = [...this.teams.values()];
+    const needed = Math.max(max > 0 ? Math.ceil(players.length / max) : 2, teams.length ? 1 : 0);
+    for (let n = 1; teams.length < needed; n++) {
+      const name = `Team ${n}`;
+      if (!this.findTeamByName(name)) teams.push(this.makeTeam(name));
+    }
+    players.forEach((p, i) => {
+      p.teamId = teams[i % teams.length].id;
+    });
+    this.pruneEmptyTeams();
+    this.logEvent('team', `teams randomized (${players.length} players, ${teams.length} teams)`);
+    return true;
+  }
+
+  findTeamByName(name) {
+    const lower = String(name).toLowerCase();
+    return [...this.teams.values()].find((t) => t.name.toLowerCase() === lower);
+  }
+
+  makeTeam(name) {
+    const team = {
+      id: genId('t'),
+      name,
+      role: 'hider', // 'hider' | 'seeker'
+      caughtAt: null, // set when converted during seek phase
+      caughtBy: null, // stats label: self / referee (name) / boundary penalty
+    };
+    this.teams.set(team.id, team);
+    return team;
+  }
+
+  /** Lobby only: drop teams nobody is on. Mid-game empty shells are kept (harmless). */
+  pruneEmptyTeams() {
+    if (this.phase !== 'lobby') return;
+    for (const t of [...this.teams.values()]) {
+      if (![...this.players.values()].some((p) => p.teamId === t.id)) {
+        this.teams.delete(t.id);
+        this.logEvent('team', `team ${t.name} is empty — deleted`);
+      }
+    }
   }
 
   /**
@@ -159,25 +286,32 @@ export class Game {
       const s = stationId && this.heist.stations.get(stationId);
       if (s?.lockedBy === player.id) s.lockedBy = null;
     }
+    this.pruneEmptyTeams();
     if (this.phase === 'seek') this.checkWin();
     return player;
   }
 
   /**
-   * Host deletes a whole team (lobby only). Members are removed with it —
-   * they get kicked back to the join screen and can re-join under a new
-   * team. Returns { team, memberIds } or null.
+   * Host deletes a whole team (lobby only). Members are removed with it
+   * (`kick`, default) or left teamless (`kick: false`). Returns { team, memberIds } or null.
    */
-  removeTeam(teamId) {
+  removeTeam(teamId, { kick = true } = {}) {
     if (this.phase !== 'lobby') return null;
     const team = this.teams.get(teamId);
     if (!team) return null;
     const memberIds = [...this.players.values()]
       .filter((p) => p.teamId === teamId && !p.isHost)
       .map((p) => p.id);
-    for (const id of memberIds) this.players.delete(id);
+    // kick:false → members just become teamless (they pick another team).
+    for (const id of memberIds) {
+      if (kick) this.players.delete(id);
+      else this.players.get(id).teamId = null;
+    }
     this.teams.delete(teamId);
-    this.logEvent('team', `team ${team.name} deleted (${memberIds.length} member(s) kicked)`);
+    this.logEvent(
+      'team',
+      `team ${team.name} deleted (${memberIds.length} member(s) ${kick ? 'kicked' : 'unassigned'})`,
+    );
     return { team, memberIds };
   }
 

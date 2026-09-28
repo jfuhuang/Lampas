@@ -20,7 +20,7 @@ import { HeistStats } from '../components/HeistBits.jsx';
  * Layout: single column on phones, map + control column on desktop.
  */
 export default function RefereeView() {
-  const { game, logout } = useGame();
+  const { game, logout, leaveLobby } = useGame();
   const toast = useToast();
   const { phase, phaseEndsAt, serverNow, boundary, settings } = game;
   const positions = game.positions ?? [];
@@ -119,6 +119,7 @@ export default function RefereeView() {
             onUseMyLocation={useMyLocation}
             onRadius={setRadius}
             onStart={startHide}
+            onLeaveLobby={leaveLobby}
             onLogout={logout}
           />
         )}
@@ -191,7 +192,7 @@ function GameLog({ log }) {
 
 /* ── Lobby setup: boundary, timers, team roles, start ─────────────────── */
 
-function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, onStart, onLogout }) {
+function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, onStart, onLeaveLobby, onLogout }) {
   const setSetting = (key, value) => socket.emit('host:config', { settings: { [key]: value } });
   const heistMode = game.mode === 'heist';
 
@@ -286,6 +287,33 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
 
       {heistMode && <HeistSetup game={game} settings={settings} />}
 
+      <Section title="2c · Teams">
+        <div className="flex items-end gap-3">
+          <label className="flex flex-1 flex-col gap-1 text-sm font-semibold text-neutral-300">
+            Max players per team (0 = no limit)
+            <input
+              type="number"
+              min="0"
+              max="50"
+              value={settings.maxTeamSize ?? 0}
+              onChange={(e) => setSetting('maxTeamSize', Math.max(0, Math.min(50, +e.target.value || 0)))}
+              className="rounded-lg border border-neutral-700 bg-night px-3 py-2 text-lg outline-none focus:border-lamp"
+            />
+          </label>
+          <button
+            onClick={() => socket.emit('host:randomize')}
+            className="rounded-lg bg-neutral-800 px-3 py-3 text-sm font-bold active:scale-95"
+          >
+            🎲 Randomize teams
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-neutral-500">
+          Shuffles everyone (including players without a team) across the existing teams, adding
+          "Team N" ones if the limit needs more. Players can also move themselves; use the ⇄ menu
+          in the roster to move someone.
+        </p>
+      </Section>
+
       <Section title={heistMode ? '3 · Who are the cops? (tap a team to toggle)' : '3 · Who seeks first? (tap a team to toggle)'}>
         <div className="flex flex-wrap gap-2">
           {game.teams.map((t) => (
@@ -317,12 +345,24 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
         🏁 Start {heistMode ? 'scatter' : 'hide'} phase
       </button>
 
-      <button
-        onClick={onLogout}
-        className="mx-auto px-1 py-2 text-xs font-semibold text-neutral-500 underline active:scale-95"
-      >
-        Log out (forget me on this phone)
-      </button>
+      <div className="mx-auto flex items-center gap-4 text-xs font-semibold text-neutral-500">
+        <button onClick={onLeaveLobby} className="px-1 py-2 underline active:scale-95">
+          ← Lobbies
+        </button>
+        <button
+          onClick={() => {
+            if (window.confirm('Close this lobby and send everyone back to the lobby list?')) {
+              socket.emit('lobby:close');
+            }
+          }}
+          className="px-1 py-2 text-red-400 underline active:scale-95"
+        >
+          Close lobby
+        </button>
+        <button onClick={onLogout} className="px-1 py-2 underline active:scale-95">
+          Log out
+        </button>
+      </div>
     </>
   );
 }
@@ -526,12 +566,17 @@ function PlayerRoster({ game }) {
     toast(`Kicked ${p.name} — they can re-join anytime`, 'info');
   };
 
-  // Deleting removes the team AND kicks all its members — arm on first tap.
+  // Moves are lobby-only (roles/win bookkeeping lock once the round starts).
+  const onMove = inLobby
+    ? (p, teamId) => socket.emit('host:movePlayer', { playerId: p.id, teamId })
+    : undefined;
+
+  // Deleting removes the team; its members become teamless — arm on first tap.
   const onDeleteTeam = inLobby
     ? (t) => {
         if (armedTeamId !== t.id) {
           setArmedTeamId(t.id);
-          toast(`Tap 🗑 on ${t.name} again to delete the team + kick its players`, 'warn');
+          toast(`Tap 🗑 on ${t.name} again to delete the team (players become teamless)`, 'warn');
           return;
         }
         setArmedTeamId(null);
@@ -551,11 +596,13 @@ function PlayerRoster({ game }) {
         youId={game.you?.id}
         onKick={onKick}
         onDeleteTeam={onDeleteTeam}
+        onMove={onMove}
+        maxSize={game.settings?.maxTeamSize ?? 0}
       />
       {unassigned.length > 0 && (
         <div className="mt-3 rounded-xl border border-dashed border-amber-800 bg-panel p-3">
           <p className="mb-2 text-xs font-black uppercase tracking-widest text-amber-500">
-            Picking a team…
+            No team yet
           </p>
           <ul className="flex flex-wrap gap-2">
             {unassigned.map((p) => (
@@ -566,6 +613,21 @@ function PlayerRoster({ game }) {
                 }`}
               >
                 {p.name}
+                {onMove && game.teams.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => e.target.value && onMove(p, e.target.value)}
+                    aria-label={`Move ${p.name} to a team`}
+                    className="ml-1 w-6 rounded bg-neutral-700 text-xs text-neutral-200"
+                  >
+                    <option value="">⇄</option>
+                    {game.teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button
                   onClick={() => onKick(p)}
                   aria-label={`Kick ${p.name}`}

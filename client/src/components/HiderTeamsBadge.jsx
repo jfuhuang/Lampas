@@ -11,7 +11,7 @@ export default function HiderTeamsBadge({ position = 'right-3 top-3' }) {
   const { game, phase, joined } = useGame();
   const [open, setOpen] = useState(false);
 
-  if (!joined || !game || phase === 'lobby') return null;
+  if (!joined || !game || game.browse || phase === 'lobby') return null;
   if (game.mode === 'heist') return <LootBadge game={game} position={position} />;
   const hiders = game.teams.filter((t) => t.role === 'hider' && t.players.length > 0);
 
