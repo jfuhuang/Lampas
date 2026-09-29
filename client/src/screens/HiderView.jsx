@@ -154,7 +154,7 @@ export function GameOver() {
           ? `${game.winnerTeamName} win${won ? " — that’s you!" : "!"}`
           : "Seekers caught everyone!"}
       </p>
-      <p className="text-sm text-neutral-400">Return to Blue Ridge!</p>
+      <p className="text-sm text-neutral-400">Return to the SIC!</p>
       <GameStats stats={game.stats} />
     </div>
   );

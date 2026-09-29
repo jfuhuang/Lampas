@@ -253,6 +253,10 @@ let torchSupported = null; // null = unknown, set by prewarmTorch()
 // still null) BEFORE enableTorch resolved and lit a torch nobody would
 // ever turn off. Every acquisition re-checks this flag before keeping it.
 let torchDesired = false;
+// One acquisition at a time: overlapping enableTorch() calls each grabbed a
+// camera track and the later one overwrote `torchTrack`, leaking the first
+// (lit forever, never stopped).
+let torchPending = null;
 
 /**
  * MUST be called from a user gesture (lobby Ready tap). Grabs then
@@ -292,9 +296,18 @@ export async function prewarmTorch() {
  * plain hint sometimes yields the front camera, which has no torch),
  * then falls back to the hint.
  */
-export async function enableTorch() {
+export function enableTorch() {
   torchDesired = true;
-  if (torchTrack) return true;
+  if (torchTrack) return Promise.resolve(true);
+  if (!torchPending) {
+    torchPending = acquireTorch().finally(() => {
+      torchPending = null;
+    });
+  }
+  return torchPending;
+}
+
+async function acquireTorch() {
   if (!navigator.mediaDevices?.getUserMedia) return false;
   // NOTE: a failed prewarm does NOT short-circuit here — the user may have
   // granted camera permission after it ran, and the per-device probe below
