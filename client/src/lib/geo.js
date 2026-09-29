@@ -10,11 +10,11 @@
  */
 
 /**
- * Default map center: Snow Mountain Ranch (YMCA of the Rockies), Granby, CO.
+ * Default map center: Iowa State University campus (the Campanile), Ames, IA.
  * Only a starting view — the referee re-centers by tapping the map or
  * "Center on me", and the map auto-fits once a boundary exists.
  */
-export const DEFAULT_CENTER = { lat: 39.9865, lng: -105.9333 };
+export const DEFAULT_CENTER = { lat: 42.0267, lng: -93.6465 };
 export const DEFAULT_ZOOM = 15;
 
 /**
@@ -32,6 +32,16 @@ export function haversine(a, b) {
   const h =
     sinLat * sinLat + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sinLng * sinLng;
   return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
+}
+
+/** Initial compass bearing from a → b in degrees (0 = north, clockwise). */
+export function bearing(a, b) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const y = Math.sin(toRad(b.lng - a.lng)) * Math.cos(toRad(b.lat));
+  const x =
+    Math.cos(toRad(a.lat)) * Math.sin(toRad(b.lat)) -
+    Math.sin(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.cos(toRad(b.lng - a.lng));
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
 // ── Geolocation ────────────────────────────────────────────────────────
@@ -52,7 +62,12 @@ export function startPositionStream(onPos, onError, throttleMs = 3000) {
       const now = Date.now();
       if (now - lastSent < throttleMs) return;
       lastSent = now;
-      onPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      onPos({
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        // GPS error radius in meters — heist tasks refuse fixes that are too fuzzy
+        accuracy: Math.round(pos.coords.accuracy),
+      });
     },
     (err) => onError?.(err),
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
@@ -121,6 +136,9 @@ let revealSource = null; // currently playing source (so re-triggers restart)
  */
 export function unlockAudio() {
   try {
+    // iOS: WebAudio is muted by the ringer switch unless the page's audio
+    // session is "playback" (Safari 16.4+).
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
     // Play one silent sample to satisfy iOS' gesture requirement.
@@ -146,6 +164,19 @@ export function unlockAudio() {
 }
 
 /**
+ * Unlock audio on the first tap/keypress ANYWHERE, so players who skip the
+ * lobby Ready button (session resume, joining mid-game, host phone) still
+ * get sound. Call once at app start.
+ */
+export function unlockAudioOnFirstGesture() {
+  const events = ['pointerdown', 'touchend', 'click', 'keydown'];
+  const handler = () => {
+    if (unlockAudio()) events.forEach((e) => window.removeEventListener(e, handler, true));
+  };
+  events.forEach((e) => window.addEventListener(e, handler, true));
+}
+
+/**
  * Reveal sound for the `sound` curveball, looped for `seconds`.
  * Plays the decoded clip through WebAudio; falls back to a synthesized
  * two-tone siren if the clip failed to load. Requires unlockAudio() to
@@ -153,7 +184,7 @@ export function unlockAudio() {
  */
 export function playRevealTone(seconds = 10) {
   if (!audioCtx) return false;
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
   try {
     revealSource?.stop();
   } catch {

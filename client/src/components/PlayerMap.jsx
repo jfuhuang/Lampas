@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { DEFAULT_CENTER, DEFAULT_ZOOM } from '../lib/geo.js';
 import { addStyleControl } from '../lib/mapStyles.js';
+import { drawHeistLayers } from '../lib/heistLayers.js';
 
 /**
  * Boundary map for HIDERS and SEEKERS: the amber circle + YOUR OWN blue
@@ -16,6 +17,8 @@ export default function PlayerMap({
   myPos,
   heading,
   others,
+  heist, // heist mode: { stations?, prison, stationRadiusM, prisonRadiusM }
+  title = 'Boundary map',
   collapsedByDefault = false,
 }) {
   const [open, setOpen] = useState(!collapsedByDefault);
@@ -37,7 +40,7 @@ export default function PlayerMap({
         className="flex w-full items-center justify-between px-3 py-2 text-xs font-black uppercase tracking-widest text-neutral-400"
       >
         <span>
-          Boundary map
+          {title}
           {revealed && <span className="ml-2 animate-pulse text-red-400">● LIVE REVEAL</span>}
         </span>
         <span>{open ? '▾ hide' : '▸ show'}</span>
@@ -45,7 +48,13 @@ export default function PlayerMap({
       {open &&
         (boundary ? (
           <div className="relative h-[32dvh] min-h-[200px] overflow-hidden rounded-b-xl">
-            <MapCanvas boundary={boundary} myPos={myPos} heading={heading} others={others} />
+            <MapCanvas
+              boundary={boundary}
+              myPos={myPos}
+              heading={heading}
+              others={others}
+              heist={heist}
+            />
             <NorthBadge />
           </div>
         ) : (
@@ -66,13 +75,14 @@ export function NorthBadge() {
   );
 }
 
-function MapCanvas({ boundary, myPos, heading, others }) {
+function MapCanvas({ boundary, myPos, heading, others, heist }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const circleRef = useRef(null);
   const meRef = useRef(null);
   const headingRef = useRef(null); // rotating compass arrow over own dot
   const othersLayerRef = useRef(null); // reveal-event dots, redrawn per update
+  const heistLayerRef = useRef(null); // heist stations + prison
 
   useEffect(() => {
     const map = L.map(mapEl.current, {
@@ -80,10 +90,17 @@ function MapCanvas({ boundary, myPos, heading, others }) {
       attributionControl: false,
     }).setView([DEFAULT_CENTER.lat, DEFAULT_CENTER.lng], DEFAULT_ZOOM);
     addStyleControl(map); // Night / Terrain / Satellite picker
+    heistLayerRef.current = L.layerGroup().addTo(map);
     othersLayerRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
     return () => map.remove();
   }, []);
+
+  // Heist overlays: prison for everyone, live stations for robbers only
+  // (the server never sends stations to cops).
+  useEffect(() => {
+    drawHeistLayers(heistLayerRef.current, heist ?? {});
+  }, [heist]);
 
   // Reveal dots: everyone's positions while the curveball is active.
   useEffect(() => {

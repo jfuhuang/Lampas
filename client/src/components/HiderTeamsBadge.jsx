@@ -11,7 +11,8 @@ export default function HiderTeamsBadge({ position = 'right-3 top-3' }) {
   const { game, phase, joined } = useGame();
   const [open, setOpen] = useState(false);
 
-  if (!joined || !game || phase === 'lobby') return null;
+  if (!joined || !game || game.browse || phase === 'lobby') return null;
+  if (game.mode === 'heist') return <LootBadge game={game} position={position} />;
   const hiders = game.teams.filter((t) => t.role === 'hider' && t.players.length > 0);
 
   return (
@@ -33,5 +34,18 @@ export default function HiderTeamsBadge({ position = 'right-3 top-3' }) {
         </ul>
       )}
     </button>
+  );
+}
+
+/** Heist mode: the corner chip shows the robbers' loot vs the target instead. */
+function LootBadge({ game, position }) {
+  const score = game.heist?.score ?? 0;
+  return (
+    <div
+      className={`fixed ${position} z-30 rounded-xl border border-violet-800 bg-violet-950/90 px-3 py-2 text-sm font-black text-violet-200 shadow-lg backdrop-blur`}
+      aria-label={`Robbers have ${score} of ${game.settings.targetScore} points`}
+    >
+      💰 {score}/{game.settings.targetScore}
+    </div>
   );
 }

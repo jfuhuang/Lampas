@@ -1,0 +1,11 @@
+/** Fisher–Yates copy — shared by the mini-games. */
+export function shuffled(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+export const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));

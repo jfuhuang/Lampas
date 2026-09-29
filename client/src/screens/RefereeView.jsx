@@ -8,6 +8,8 @@ import { NorthBadge } from '../components/PlayerMap.jsx';
 import GameStats from '../components/GameStats.jsx';
 import { useGame, useToast } from '../context/GameContext.jsx';
 import { TeamList } from './Lobby.jsx';
+import { ModePicker, HeistSetup, HeistLiveControls, PlacePicker } from './RefereeHeist.jsx';
+import { HeistStats } from '../components/HeistBits.jsx';
 
 /**
  * Referee panel (rendered inside HostView's 👑 tab) — the safety net
@@ -18,10 +20,13 @@ import { TeamList } from './Lobby.jsx';
  * Layout: single column on phones, map + control column on desktop.
  */
 export default function RefereeView() {
-  const { game, logout } = useGame();
+  const { game, logout, leaveLobby } = useGame();
   const toast = useToast();
   const { phase, phaseEndsAt, serverNow, boundary, settings } = game;
   const positions = game.positions ?? [];
+  const heistMode = game.mode === 'heist';
+  // Heist lobby: what a map tap places — boundary center, a station, or the prison.
+  const [placeMode, setPlaceMode] = useState('boundary');
 
   const setCenter = (center) =>
     socket.emit('host:config', {
@@ -30,6 +35,12 @@ export default function RefereeView() {
 
   const setRadius = (radiusM) => {
     if (boundary?.center) socket.emit('host:config', { boundary: { ...boundary, radiusM } });
+  };
+
+  const onLobbyTap = (pt) => {
+    if (heistMode && placeMode === 'station') socket.emit('host:station:add', pt);
+    else if (heistMode && placeMode === 'prison') socket.emit('host:prison', pt);
+    else setCenter(pt);
   };
 
   const useMyLocation = async () => {
@@ -44,7 +55,14 @@ export default function RefereeView() {
   const startHide = () => {
     if (!boundary) return toast?.('Set a boundary first (tap the map)', 'warn');
     const seekers = game.teams.filter((t) => t.role === 'seeker').length;
-    if (seekers === 0) return toast?.('Mark at least one team as seekers', 'warn');
+    if (seekers === 0) {
+      return toast?.(heistMode ? 'Mark at least one team as cops' : 'Mark at least one team as seekers', 'warn');
+    }
+    if (heistMode) {
+      const stationCount = game.heist?.stations?.length ?? 0;
+      if (!game.heist?.prison) return toast?.('Place the prison first', 'warn');
+      if (stationCount === 0) return toast?.('Place at least one task station', 'warn');
+    }
     unlockAudio(); // host gesture — host phone also needs sound + wake lock
     requestWakeLock();
     socket.emit('host:startPhase', { phase: 'hide' });
@@ -70,10 +88,21 @@ export default function RefereeView() {
           positions={positions}
           boundary={boundary}
           phase={phase}
-          onSetCenter={setCenter}
+          onLobbyTap={onLobbyTap}
           shrinkPreviewM={shrinkPreviewM}
+          heist={
+            heistMode
+              ? {
+                  stations: game.heist?.stations,
+                  prison: game.heist?.prison,
+                  stationRadiusM: settings.stationRadiusM,
+                  prisonRadiusM: settings.prisonRadiusM,
+                }
+              : null
+          }
         />
         <NorthBadge />
+        {heistMode && phase === 'lobby' && <PlacePicker value={placeMode} onChange={setPlaceMode} />}
       </div>
 
       <div className="flex flex-col gap-4">
@@ -90,20 +119,25 @@ export default function RefereeView() {
             onUseMyLocation={useMyLocation}
             onRadius={setRadius}
             onStart={startHide}
+            onLeaveLobby={leaveLobby}
             onLogout={logout}
           />
         )}
 
         {(phase === 'hide' || phase === 'seek') && (
-          <LiveControls game={game} boundary={boundary} />
+          <LiveControls game={game} boundary={boundary} heistMode={heistMode} />
         )}
 
         {phase === 'over' && (
           <>
             <div className="rounded-xl border border-neutral-800 bg-panel p-4 text-center">
-              <div className="text-4xl">🏆</div>
+              <div className="text-4xl">{heistMode ? (game.heist?.winner === 'robbers' ? '💰' : '🚓') : '🏆'}</div>
               <p className="mt-1 text-lg font-bold">
-                {game.winnerTeamName ? `${game.winnerTeamName} win!` : 'Seekers caught everyone!'}
+                {heistMode
+                  ? `${game.heist?.winner === 'robbers' ? 'Robbers' : 'Cops'} win! Loot ${game.heist?.score ?? 0}/${settings.targetScore}`
+                  : game.winnerTeamName
+                    ? `${game.winnerTeamName} win!`
+                    : 'Seekers caught everyone!'}
               </p>
               <button
                 onClick={() => socket.emit('host:reset')}
@@ -113,6 +147,9 @@ export default function RefereeView() {
               </button>
             </div>
             <GameStats stats={game.stats} />
+            {heistMode && (
+              <HeistStats robbers={[...(game.heist?.robbers ?? [])].sort((a, b) => b.points - a.points)} />
+            )}
           </>
         )}
 
@@ -132,6 +169,8 @@ function GameLog({ log }) {
     boundary: 'text-sky-300',
     phase: 'text-emerald-300',
     event: 'text-fuchsia-300',
+    score: 'text-violet-300',
+    task: 'text-neutral-500',
   };
   return (
     <Section title="Game log (newest first)">
@@ -153,12 +192,14 @@ function GameLog({ log }) {
 
 /* ── Lobby setup: boundary, timers, team roles, start ─────────────────── */
 
-function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, onStart, onLogout }) {
+function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, onStart, onLeaveLobby, onLogout }) {
   const setSetting = (key, value) => socket.emit('host:config', { settings: { [key]: value } });
+  const heistMode = game.mode === 'heist';
 
   return (
     <>
       <InviteQR />
+      <ModePicker mode={game.mode} />
       <Section title="1 · Boundary (circle)">
         <div className="flex gap-2">
           <button onClick={onUseMyLocation} className="flex-1 rounded-lg bg-neutral-800 px-3 py-3 text-sm font-bold active:scale-95">
@@ -208,12 +249,12 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
       <Section title="2 · Timers">
         <div className="grid grid-cols-2 gap-3">
           <NumberField
-            label="Hide (min)"
+            label={heistMode ? 'Scatter (min)' : 'Hide (min)'}
             value={Math.round(settings.hideSeconds / 60)}
             onChange={(v) => setSetting('hideSeconds', v * 60)}
           />
           <NumberField
-            label="Seek (min)"
+            label={heistMode ? 'Heist (min)' : 'Seek (min)'}
             value={Math.round(settings.seekSeconds / 60)}
             onChange={(v) => setSetting('seekSeconds', v * 60)}
           />
@@ -244,7 +285,36 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
         )}
       </Section>
 
-      <Section title="3 · Who seeks first? (tap a team to toggle)">
+      {heistMode && <HeistSetup game={game} settings={settings} />}
+
+      <Section title="2c · Teams">
+        <div className="flex items-end gap-3">
+          <label className="flex flex-1 flex-col gap-1 text-sm font-semibold text-neutral-300">
+            Max players per team (0 = no limit)
+            <input
+              type="number"
+              min="0"
+              max="50"
+              value={settings.maxTeamSize ?? 0}
+              onChange={(e) => setSetting('maxTeamSize', Math.max(0, Math.min(50, +e.target.value || 0)))}
+              className="rounded-lg border border-neutral-700 bg-night px-3 py-2 text-lg outline-none focus:border-lamp"
+            />
+          </label>
+          <button
+            onClick={() => socket.emit('host:randomize')}
+            className="rounded-lg bg-neutral-800 px-3 py-3 text-sm font-bold active:scale-95"
+          >
+            🎲 Randomize teams
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-neutral-500">
+          Shuffles everyone (including players without a team) across the existing teams, adding
+          "Team N" ones if the limit needs more. Players can also move themselves; use the ⇄ menu
+          in the roster to move someone.
+        </p>
+      </Section>
+
+      <Section title={heistMode ? '3 · Who are the cops? (tap a team to toggle)' : '3 · Who seeks first? (tap a team to toggle)'}>
         <div className="flex flex-wrap gap-2">
           {game.teams.map((t) => (
             <button
@@ -259,7 +329,7 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
                 t.role === 'seeker' ? 'bg-red-800 text-red-100' : 'bg-emerald-900 text-emerald-100'
               }`}
             >
-              {t.name}: {t.role}
+              {t.name}: {heistMode ? (t.role === 'seeker' ? 'cops' : 'robbers') : t.role}
             </button>
           ))}
           {game.teams.length === 0 && (
@@ -272,15 +342,27 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
         onClick={onStart}
         className="rounded-xl bg-lamp px-4 py-5 text-xl font-black text-night active:scale-95"
       >
-        🏁 Start hide phase
+        🏁 Start {heistMode ? 'scatter' : 'hide'} phase
       </button>
 
-      <button
-        onClick={onLogout}
-        className="mx-auto px-1 py-2 text-xs font-semibold text-neutral-500 underline active:scale-95"
-      >
-        Log out (forget me on this phone)
-      </button>
+      <div className="mx-auto flex items-center gap-4 text-xs font-semibold text-neutral-500">
+        <button onClick={onLeaveLobby} className="px-1 py-2 underline active:scale-95">
+          ← Lobbies
+        </button>
+        <button
+          onClick={() => {
+            if (window.confirm('Close this lobby and send everyone back to the lobby list?')) {
+              socket.emit('lobby:close');
+            }
+          }}
+          className="px-1 py-2 text-red-400 underline active:scale-95"
+        >
+          Close lobby
+        </button>
+        <button onClick={onLogout} className="px-1 py-2 underline active:scale-95">
+          Log out
+        </button>
+      </div>
     </>
   );
 }
@@ -322,7 +404,7 @@ function InviteQR() {
 
 /* ── In-game: curveballs, phase skip, manual tag ──────────────────────── */
 
-function LiveControls({ game, boundary }) {
+function LiveControls({ game, boundary, heistMode }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [shrinkOpen, setShrinkOpen] = useState(false);
   const [targetR, setTargetR] = useState('');
@@ -350,7 +432,7 @@ function LiveControls({ game, boundary }) {
           </p>
         )}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <EventButton emoji="🔊" label="Sound" hint="hider phones ring" onClick={() => trigger('sound')} />
+          <EventButton emoji="🔊" label="Sound" hint={heistMode ? 'robber phones ring' : 'hider phones ring'} onClick={() => trigger('sound')} />
           <EventButton emoji="🔦" label="Torch" hint="lights-on flash" onClick={() => trigger('torch')} />
           <EventButton
             emoji="⭕"
@@ -404,6 +486,9 @@ function LiveControls({ game, boundary }) {
         )}
       </Section>
 
+      {heistMode && <HeistLiveControls game={game} />}
+
+      {!heistMode && (
       <Section title="Manual tag (referee override)">
         <div className="flex flex-col gap-2">
           {game.teams
@@ -424,6 +509,7 @@ function LiveControls({ game, boundary }) {
             ))}
         </div>
       </Section>
+      )}
 
       <Section title="Phase">
         <div className="flex gap-2">
@@ -432,7 +518,7 @@ function LiveControls({ game, boundary }) {
               onClick={() => socket.emit('host:startPhase', { phase: 'seek' })}
               className="flex-1 rounded-lg bg-red-800 px-3 py-3 font-bold text-red-100 active:scale-95"
             >
-              ⏭ Start seek now
+              ⏭ Start {heistMode ? 'heist' : 'seek'} now
             </button>
           )}
           {confirmReset ? (
@@ -480,12 +566,17 @@ function PlayerRoster({ game }) {
     toast(`Kicked ${p.name} — they can re-join anytime`, 'info');
   };
 
-  // Deleting removes the team AND kicks all its members — arm on first tap.
+  // Moves are lobby-only (roles/win bookkeeping lock once the round starts).
+  const onMove = inLobby
+    ? (p, teamId) => socket.emit('host:movePlayer', { playerId: p.id, teamId })
+    : undefined;
+
+  // Deleting removes the team; its members become teamless — arm on first tap.
   const onDeleteTeam = inLobby
     ? (t) => {
         if (armedTeamId !== t.id) {
           setArmedTeamId(t.id);
-          toast(`Tap 🗑 on ${t.name} again to delete the team + kick its players`, 'warn');
+          toast(`Tap 🗑 on ${t.name} again to delete the team (players become teamless)`, 'warn');
           return;
         }
         setArmedTeamId(null);
@@ -505,11 +596,13 @@ function PlayerRoster({ game }) {
         youId={game.you?.id}
         onKick={onKick}
         onDeleteTeam={onDeleteTeam}
+        onMove={onMove}
+        maxSize={game.settings?.maxTeamSize ?? 0}
       />
       {unassigned.length > 0 && (
         <div className="mt-3 rounded-xl border border-dashed border-amber-800 bg-panel p-3">
           <p className="mb-2 text-xs font-black uppercase tracking-widest text-amber-500">
-            Picking a team…
+            No team yet
           </p>
           <ul className="flex flex-wrap gap-2">
             {unassigned.map((p) => (
@@ -520,6 +613,21 @@ function PlayerRoster({ game }) {
                 }`}
               >
                 {p.name}
+                {onMove && game.teams.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => e.target.value && onMove(p, e.target.value)}
+                    aria-label={`Move ${p.name} to a team`}
+                    className="ml-1 w-6 rounded bg-neutral-700 text-xs text-neutral-200"
+                  >
+                    <option value="">⇄</option>
+                    {game.teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button
                   onClick={() => onKick(p)}
                   aria-label={`Kick ${p.name}`}
@@ -536,7 +644,7 @@ function PlayerRoster({ game }) {
   );
 }
 
-function Section({ title, children }) {
+export function Section({ title, children }) {
   return (
     <section className="rounded-xl border border-neutral-800 bg-panel p-3">
       <h2 className="mb-2 text-xs font-black uppercase tracking-widest text-neutral-400">{title}</h2>
@@ -558,14 +666,14 @@ function EventButton({ emoji, label, hint, onClick }) {
   );
 }
 
-function NumberField({ label, value, onChange }) {
+export function NumberField({ label, value, onChange, max = 120 }) {
   return (
     <label className="flex flex-col gap-1 text-sm font-semibold text-neutral-300">
       {label}
       <input
         type="number"
         min="1"
-        max="120"
+        max={max}
         value={value}
         onChange={(e) => onChange(Math.max(1, +e.target.value || 1))}
         className="rounded-lg border border-neutral-700 bg-night px-3 py-2 text-lg outline-none focus:border-lamp"

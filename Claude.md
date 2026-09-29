@@ -197,7 +197,7 @@ the code as it exists — keep this section updated when the code changes.
 | Game context | `client/src/context/GameContext.jsx` | Owns socket subscription, state mirror, creds, position streaming, overlays/toasts. Consumed via `useGame()` / `useToast()` hooks — screens take NO game props |
 | Screens | `client/src/screens/` | `JoinScreen` (doubles as `/host` password login), `Lobby`, `HiderView` ("I'm caught" + collapsed boundary map), `SeekerView` (read-only hunt list + boundary map), `HostView` (plain referee for teamless hosts; 👑/🔦 tabs only if host has a team), `RefereeView` |
 | Components | `client/src/components/` | `Countdown` (server-clock corrected), `Toast`, `TorchOverlay` (full-screen white flash), `RefereeMap` (Leaflet, plain JS — NOT react-leaflet), `PlayerMap` (boundary circle + OWN dot only, collapsible; collapsed by default for hiders — lit screen betrays the hiding spot; own position is the local GPS echo `myPos` from GameContext, other players' positions never reach player clients) |
-| Device APIs | `client/src/lib/geo.js` | `startPositionStream` (3s throttle), `getCurrentPosition`, `requestWakeLock` (re-acquires on visibility), `unlockAudio`, `playRevealTone` (loops `public/sounds/reveal.mp3`), `vibrate`, `enableTorch`/`disableTorch`. Also exports `DEFAULT_CENTER`/`DEFAULT_ZOOM` (Snow Mountain Ranch) |
+| Device APIs | `client/src/lib/geo.js` | `startPositionStream` (3s throttle), `getCurrentPosition`, `requestWakeLock` (re-acquires on visibility), `unlockAudio`, `playRevealTone` (loops `public/sounds/reveal.mp3`), `vibrate`, `enableTorch`/`disableTorch`. Also exports `DEFAULT_CENTER`/`DEFAULT_ZOOM` (Iowa State campus) |
 | Socket client | `client/src/lib/socket.js` | Single shared socket, `resync` on every connect AND on tab-visible. Persistence: playerId (`lampas.playerId`) + name/team creds (`lampas.creds`) in `localStorage`. Exposes `setEmitInterceptor()` for the dev view. Server URL from `VITE_SERVER_URL` (build-time, split deploys e.g. Vercel client + remote server — see `client/.env.example`); unset = same-origin monolith |
 | Dev view | `client/src/dev/DevApp.jsx`, `client/src/dev/engine.js` | `?dev` URL flag swaps the app for a mock-driven harness: real screens, screen + persona pickers, local engine mirroring server rules (tag/convert/win/timers/curveballs), bot drift on the map, sim pause/reset. `socket.emit` intercepted, real socket disconnected. Engine is a deliberate throwaway mimic — `server/game.js` stays the rules source of truth |
 
@@ -397,6 +397,34 @@ the code as it exists — keep this section updated when the code changes.
   team switches) never count as hiders; (2) a game that STARTED with a single hider
   team plays until 0 remain (else it would end at kickoff) — `initialHiderTeams` is
   snapshotted at seek start. Mirrored in the dev engine.
+- **Heist mode — cops & robbers** (2026-09-28, branch `feature/heist-mode`): second
+  game mode, picked in the host lobby (`host:config {mode}`, `game.mode` =
+  `'hideseek' | 'heist'`, lobby-only). Rules live in `server/heist.js`, which is mixed
+  into `Game.prototype`. Existing machinery is **reused**: team role `seeker` = cops,
+  `hider` = robbers. Phase `hide` = scatter and `seek` = heist, so timers, curveballs
+  and reveal all work unchanged. Robbers are tracked **per player** (`player.robber`:
+  `free → jailed → immune → free`), not converted per team. `tagPlayer`/`caught:self`
+  route to `catchRobber` in heist. Stations are host-placed and **rotate**: only
+  `activeStations` are live at once, and finishing one lights a random *different* one
+  (it stays live if nothing else is dark). There is one lock per station, released on
+  cancel, catch, or after a 90s timeout. Presence is **GPS only**: `task:start`
+  requires a fix no older than 15s, accuracy ≤35 m, and being within `stationRadiusM`.
+  `task:complete` allows radius +15 m of slack and a minimum elapsed time (3s, or 10s
+  for download). Jail time counts only while a fresh fix is inside the prison (paused,
+  not reset). **Privacy**: live stations go to robbers only, never cops (unit-tested).
+  Inactive stations stay hidden from everyone except the referee. The robber roster
+  status is public so cops can see who's immune. Boundary checks run **per robber** in
+  heist (a centroid is meaningless for scattered robbers). Stats use
+  `heist.robbers[].points/timesCaught` instead of `statsPayload()`. Client:
+  `RobberView`, `CopView`, `components/tasks/*` (one file per mini-game, plus
+  `TaskRunner`, which pads the submit to ≥3.5s and offers "retry upload" on a refused or
+  timed-out ack), `components/HeistBits.jsx`, `screens/RefereeHeist.jsx` (mode picker,
+  map "Tap places" picker, station list, rules, live overrides via `host:heist`),
+  `lib/heistLayers.js` (map overlays). GPS `accuracy` now streams with `pos:update`.
+  Dev view: "💰 heist mode + layout", "me → station/prison" teleports, "bot jail".
+  Tests: `server/heist.test.js`. Backlog ideas (not built): jailbreak, alarms (fuzzy
+  circle shown to cops), loot carry to a hideout, 2-robber vault, cop radar curveball,
+  QR-at-station presence proof.
 - **Boundary grace penalty = forced tag** of the whole offending team (not auto-reveal);
   warning fires in both hide and seek phases, penalty only in seek.
 - **Countdown drift handling**: every `game:state` carries `serverNow`; the client
@@ -404,8 +432,8 @@ the code as it exists — keep this section updated when the code changes.
 - **Tailwind v4** (`@tailwindcss/vite` plugin, `@theme` tokens in `index.css` — there is
   no `tailwind.config.js`, that's v4-normal). Custom colors: `night`, `panel`, `lamp`.
 - **Leaflet used directly** (no react-leaflet — avoids React-version coupling). OSM tiles
-  dark-filtered via CSS for night use. Default view: **Snow Mountain Ranch, Granby CO**
-  (`DEFAULT_CENTER` in `client/src/lib/geo.js`, 39.9865/-105.9333, zoom 15) — starting
+  dark-filtered via CSS for night use. Default view: **Iowa State University campus, Ames IA**
+  (`DEFAULT_CENTER` in `client/src/lib/geo.js`, 42.0267/-93.6465, zoom 15) — starting
   view only; auto-fits to the boundary once one is set. The dev engine duplicates the
   coords literally (it must stay importable in plain Node, and lib/geo.js touches
   browser globals).

@@ -10,6 +10,7 @@
  */
 
 import { haversine, centroid, insideBoundary, distanceOutside } from './geo.js';
+import { heistMethods, freshHeistState, resetRobber, HEIST_SETTINGS } from './heist.js';
 
 export const PHASES = ['lobby', 'hide', 'seek', 'over'];
 export const EVENT_TYPES = ['sound', 'torch', 'shrink', 'reveal'];
@@ -23,6 +24,8 @@ const DEFAULT_SETTINGS = {
   boundaryMarginM: 10, // GPS-noise margin added to the radius
   autoEvents: 0, // 1 = referee panel fires random curveballs on a timer
   autoEventIntervalSeconds: 90, // gap between auto-fired curveballs
+  maxTeamSize: 0, // players per team; 0 = unlimited (host sets in the lobby)
+  ...HEIST_SETTINGS, // heist-mode knobs (server/heist.js); ignored in hide & seek
 };
 
 let nextId = 1;
@@ -50,6 +53,8 @@ export class Game {
   }
 
   reset() {
+    this.mode = 'hideseek'; // 'hideseek' | 'heist' (cops & robbers, server/heist.js)
+    this.heist = freshHeistState();
     this.phase = 'lobby';
     this.phaseEndsAt = null;
     this.boundary = null; // { center: {lat,lng}, radiusM }
@@ -58,6 +63,8 @@ export class Game {
     this.teams = new Map(); // teamId → team
     this.activeEvent = null; // { type, endsAt }
     this.nextAutoEventAt = null; // when autoEvents is on: next curveball timestamp
+    this.lastAutoType = null;
+    this.autoBaseRadiusM = null; // boundary radius when the round started (auto-shrink floor)
     this.winnerTeamId = null;
     this.startedAt = null;
     this.seekStartedAt = null;
@@ -81,6 +88,7 @@ export class Game {
         pos: null, // { lat, lng, at }
         outsideSince: null, // timestamp when their team left the boundary
       };
+      resetRobber(player); // heist-mode status block (unused in hide & seek)
       this.players.set(player.id, player);
     }
     player.connected = true;
@@ -121,17 +129,143 @@ export class Game {
     );
     if (!team) {
       if (this.phase !== 'lobby') return null;
-      team = {
-        id: genId('t'),
-        name: cleanName,
-        role: 'hider', // 'hider' | 'seeker'
-        caughtAt: null, // set when converted during seek phase
-        caughtBy: null, // stats label: self / referee (name) / boundary penalty
-      };
-      this.teams.set(team.id, team);
+      team = this.makeTeam(cleanName);
     }
+    if (team.id !== player.teamId && this.isTeamFull(team.id)) return null;
+    const oldTeamId = player.teamId;
     player.teamId = team.id;
+    if (oldTeamId && oldTeamId !== team.id) this.pruneEmptyTeams();
     return team;
+  }
+
+  /** True when the host's per-team cap (settings.maxTeamSize, 0 = off) is reached. */
+  isTeamFull(teamId) {
+    const max = this.settings.maxTeamSize;
+    if (!(max > 0)) return false;
+    return this.teamSize(teamId) >= max;
+  }
+
+  teamSize(teamId) {
+    let n = 0;
+    for (const p of this.players.values()) if (p.teamId === teamId && !p.isHost) n++;
+    return n;
+  }
+
+  /**
+   * Player creates a brand-new team and joins it — LOBBY ONLY. Returns
+   * `{ team }` or `{ error }` (duplicate name, wrong phase, host).
+   */
+  createTeam(playerId, teamName) {
+    const player = this.players.get(playerId);
+    if (!player || player.isHost) return { error: 'Not allowed' };
+    if (this.phase !== 'lobby') return { error: 'The round already started' };
+    const cleanName = String(teamName ?? '').trim().slice(0, 24);
+    if (!cleanName) return { error: 'Give your team a name' };
+    if (this.findTeamByName(cleanName)) return { error: `A team named "${cleanName}" already exists` };
+    const team = this.makeTeam(cleanName);
+    const oldTeamId = player.teamId;
+    player.teamId = team.id;
+    if (oldTeamId) this.pruneEmptyTeams();
+    this.logEvent('team', `${player.name} created team ${team.name}`);
+    return { team };
+  }
+
+  /** Player picks a team by id (team list tap). Respects the size cap. */
+  joinTeamById(playerId, teamId) {
+    const player = this.players.get(playerId);
+    const team = this.teams.get(teamId);
+    if (!player || player.isHost || !team) return { error: 'Team not found' };
+    if (player.teamId === team.id) return { team };
+    if (this.isTeamFull(team.id)) return { error: `${team.name} is full` };
+    const oldTeamId = player.teamId;
+    player.teamId = team.id;
+    if (oldTeamId) this.pruneEmptyTeams();
+    this.logEvent('team', `${player.name} joined team ${team.name}`);
+    return { team };
+  }
+
+  /**
+   * Player leaves their team — LOBBY ONLY (mid-game the roster is locked;
+   * a dropped connection never comes through here). Empty team → deleted.
+   */
+  leaveTeam(playerId) {
+    const player = this.players.get(playerId);
+    if (!player || !player.teamId || this.phase !== 'lobby') return false;
+    player.teamId = null;
+    player.ready = false;
+    this.pruneEmptyTeams();
+    return true;
+  }
+
+  /** Host moves a player into a team (or `null` = unassigned). Lobby only. */
+  movePlayer(playerId, teamId) {
+    const player = this.players.get(playerId);
+    if (!player || player.isHost || this.phase !== 'lobby') return { error: 'Not allowed' };
+    if (teamId != null) {
+      if (!this.teams.has(teamId)) return { error: 'Team not found' };
+      if (player.teamId !== teamId && this.isTeamFull(teamId)) {
+        return { error: `${this.teams.get(teamId).name} is full` };
+      }
+    }
+    player.teamId = teamId ?? null;
+    this.pruneEmptyTeams();
+    return {};
+  }
+
+  /**
+   * Host shuffles every non-host player into teams. Keeps existing teams
+   * (names/roles), adds "Team N" ones as needed so the size cap holds, and
+   * deals round-robin so sizes differ by at most one. Lobby only.
+   */
+  randomizeTeams() {
+    if (this.phase !== 'lobby') return false;
+    const players = [...this.players.values()].filter((p) => !p.isHost);
+    if (!players.length) return false;
+    for (let i = players.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [players[i], players[j]] = [players[j], players[i]];
+    }
+    const max = this.settings.maxTeamSize;
+    let teams = [...this.teams.values()];
+    const needed = Math.max(max > 0 ? Math.ceil(players.length / max) : 2, teams.length ? 1 : 0);
+    for (let n = 1; teams.length < needed; n++) {
+      const name = `Team ${n}`;
+      if (!this.findTeamByName(name)) teams.push(this.makeTeam(name));
+    }
+    players.forEach((p, i) => {
+      p.teamId = teams[i % teams.length].id;
+    });
+    this.pruneEmptyTeams();
+    this.logEvent('team', `teams randomized (${players.length} players, ${teams.length} teams)`);
+    return true;
+  }
+
+  findTeamByName(name) {
+    const lower = String(name).toLowerCase();
+    return [...this.teams.values()].find((t) => t.name.toLowerCase() === lower);
+  }
+
+  makeTeam(name) {
+    const team = {
+      id: genId('t'),
+      name,
+      role: 'hider', // 'hider' | 'seeker'
+      caughtAt: null, // set when converted during seek phase
+      caughtBy: null, // stats label: self / referee (name) / boundary penalty
+    };
+    this.teams.set(team.id, team);
+    return team;
+  }
+
+  /** Lobby only: drop teams nobody is on. Mid-game empty shells are kept (harmless). */
+  pruneEmptyTeams() {
+    if (this.phase !== 'lobby') return;
+    for (const t of [...this.teams.values()]) {
+      if (![...this.players.values()].some((p) => p.teamId === t.id)) {
+        this.teams.delete(t.id);
+        this.logEvent('team', `team ${t.name} is empty — deleted`);
+      }
+    }
   }
 
   /**
@@ -149,25 +283,37 @@ export class Game {
       'kick',
       `${player.name} removed${this.phase === 'lobby' ? ' from lobby' : ' mid-game'}`,
     );
+    if (this.isHeist()) {
+      const stationId = player.robber?.task?.stationId;
+      const s = stationId && this.heist.stations.get(stationId);
+      if (s?.lockedBy === player.id) s.lockedBy = null;
+    }
+    this.pruneEmptyTeams();
     if (this.phase === 'seek') this.checkWin();
     return player;
   }
 
   /**
-   * Host deletes a whole team (lobby only). Members are removed with it —
-   * they get kicked back to the join screen and can re-join under a new
-   * team. Returns { team, memberIds } or null.
+   * Host deletes a whole team (lobby only). Members are removed with it
+   * (`kick`, default) or left teamless (`kick: false`). Returns { team, memberIds } or null.
    */
-  removeTeam(teamId) {
+  removeTeam(teamId, { kick = true } = {}) {
     if (this.phase !== 'lobby') return null;
     const team = this.teams.get(teamId);
     if (!team) return null;
     const memberIds = [...this.players.values()]
       .filter((p) => p.teamId === teamId && !p.isHost)
       .map((p) => p.id);
-    for (const id of memberIds) this.players.delete(id);
+    // kick:false → members just become teamless (they pick another team).
+    for (const id of memberIds) {
+      if (kick) this.players.delete(id);
+      else this.players.get(id).teamId = null;
+    }
     this.teams.delete(teamId);
-    this.logEvent('team', `team ${team.name} deleted (${memberIds.length} member(s) kicked)`);
+    this.logEvent(
+      'team',
+      `team ${team.name} deleted (${memberIds.length} member(s) ${kick ? 'kicked' : 'unassigned'})`,
+    );
     return { team, memberIds };
   }
 
@@ -187,7 +333,8 @@ export class Game {
   }
 
   /** Host: configure boundary and/or timers. Boundary is a circle, always. */
-  configure({ boundary, settings }) {
+  configure({ boundary, settings, mode }) {
+    if (mode) this.setMode(mode);
     if (boundary && boundary.center && boundary.radiusM > 0) {
       this.boundary = {
         center: { lat: +boundary.center.lat, lng: +boundary.center.lng },
@@ -228,8 +375,12 @@ export class Game {
         t.caughtBy = null;
       }
       for (const p of this.players.values()) p.outsideSince = null;
+      this.endHeistRound();
     } else if (phase === 'hide') {
       this.startedAt = Date.now();
+      this.autoBaseRadiusM = this.boundary?.radiusM ?? null;
+      this.lastAutoType = null;
+      if (this.isHeist()) this.startHeistRound();
       this.phaseEndsAt = Date.now() + this.settings.hideSeconds * 1000;
     } else if (phase === 'seek') {
       this.phaseEndsAt = Date.now() + this.settings.seekSeconds * 1000;
@@ -240,6 +391,8 @@ export class Game {
       // Fresh grace clocks: time spent outside during the HIDE phase must
       // not roll into the seek penalty (caused instant premature tags).
       for (const p of this.players.values()) p.outsideSince = null;
+      // Host may skip scatter entirely — make sure a round exists.
+      if (this.isHeist() && !this.heist.roundLive) this.startHeistRound();
     } else if (phase === 'over') {
       this.phaseEndsAt = null;
     }
@@ -257,10 +410,16 @@ export class Game {
 
   // ── Positions & boundary ─────────────────────────────────────────────
 
-  updatePosition(playerId, { lat, lng }) {
+  updatePosition(playerId, { lat, lng, accuracy }) {
     const player = this.players.get(playerId);
     if (!player || !Number.isFinite(+lat) || !Number.isFinite(+lng)) return;
-    player.pos = { lat: +lat, lng: +lng, at: Date.now() };
+    player.pos = {
+      lat: +lat,
+      lng: +lng,
+      at: Date.now(),
+      // Reported GPS error radius (m) — heist presence checks reject bad fixes.
+      accuracy: Number.isFinite(+accuracy) && accuracy != null ? +accuracy : null,
+    };
     player.lastSeenAt = Date.now();
   }
 
@@ -291,6 +450,8 @@ export class Game {
    * Converts the WHOLE team to seekers, then checks the win condition.
    */
   tagPlayer(targetPlayerId, byPlayerId = null, source = null) {
+    // Heist: catching jails one robber — no team conversion.
+    if (this.isHeist()) return this.catchRobber(targetPlayerId, byPlayerId);
     if (this.phase !== 'seek') return null;
     const target = this.players.get(targetPlayerId);
     if (!target || !target.teamId) return null;
@@ -341,7 +502,7 @@ export class Game {
    * kickoff under that rule, so it plays until 0 remain (seekers win).
    */
   checkWin() {
-    if (this.phase !== 'seek') return;
+    if (this.phase !== 'seek' || this.isHeist()) return; // heist: checkHeistWin
     const hiders = this.hiderTeams();
     const endAt = this.initialHiderTeams > 1 ? 1 : 0;
     if (hiders.length <= endAt) {
@@ -411,7 +572,18 @@ export class Game {
 
   /** Fire one random curveball and re-arm the clock for the next one. */
   autoTrigger(now) {
-    const type = EVENT_TYPES[Math.floor(Math.random() * EVENT_TYPES.length)];
+    // Auto shrink must never make the game unplayable: it's skipped once the
+    // next shrink would take the zone below half its round-start size (min 100m).
+    // Also never repeat the previous auto type, so the mix stays varied.
+    const r = this.boundary?.radiusM;
+    const floor = Math.max(100, (this.autoBaseRadiusM ?? 0) * 0.5);
+    const canShrink = r != null && r * this.settings.shrinkFactor >= floor;
+    const pool = EVENT_TYPES.filter(
+      (t) => t !== this.lastAutoType && (t !== 'shrink' || canShrink),
+    );
+    const choices = pool.length ? pool : EVENT_TYPES.filter((t) => t !== 'shrink');
+    const type = choices[Math.floor(Math.random() * choices.length)];
+    this.lastAutoType = type;
     this.trigger(type);
     this.scheduleNextAutoEvent(now);
   }
@@ -429,6 +601,8 @@ export class Game {
     if (this.phaseEndsAt && now >= this.phaseEndsAt) {
       if (this.phase === 'hide') {
         this.startPhase('seek');
+      } else if (this.phase === 'seek' && this.isHeist()) {
+        this.endHeist('cops', 'time'); // robbers didn't reach the target in time
       } else if (this.phase === 'seek') {
         // Time ran out: surviving hiders win. Pick the largest surviving team.
         const hiders = this.hiderTeams();
@@ -462,16 +636,32 @@ export class Game {
       this.autoTrigger(now);
     }
 
-    // Boundary enforcement — hide + seek phases, hider teams only
+    // Heist: prison time, immunity expiry, abandoned-task locks.
+    if (this.isHeist() && this.heistTick(now)) this.broadcastState();
+
+    // Boundary enforcement — hide + seek phases, hider teams only.
+    // Heist robbers roam individually, so each robber is its own unit
+    // (a team centroid of spread-out robbers would be meaningless).
     if ((this.phase === 'hide' || this.phase === 'seek') && this.boundary) {
-      for (const team of this.hiderTeams()) {
-        const c = this.teamCentroid(team.id);
+      const units = this.isHeist()
+        ? [...this.players.values()]
+            .filter((p) => this.isRobber(p))
+            .map((p) => ({ id: p.id, name: p.name, members: [p], room: p.id, label: p.name }))
+        : this.hiderTeams().map((t) => ({
+            id: t.id,
+            name: t.name,
+            members: [...this.players.values()].filter((p) => p.teamId === t.id),
+            room: t.id,
+            label: `team ${t.name}`,
+          }));
+      for (const unit of units) {
+        const c = this.isHeist() ? freshPos(unit.members[0], now) : this.teamCentroid(unit.id);
         if (!c) continue;
         const inside = insideBoundary(c, this.boundary, this.settings.boundaryMarginM);
-        const members = [...this.players.values()].filter((p) => p.teamId === team.id);
+        const members = unit.members;
         if (inside) {
           if (members.some((m) => m.outsideSince)) {
-            this.logEvent('boundary', `team ${team.name} back inside — no longer exposed`);
+            this.logEvent('boundary', `${unit.label} back inside — no longer exposed`);
             for (const m of members) m.outsideSince = null;
             this.broadcastState(); // pull their dots off everyone's maps NOW
           }
@@ -486,19 +676,19 @@ export class Game {
           for (const m of members) m.outsideSince = now;
           this.logEvent(
             'boundary',
-            `team ${team.name} OUTSIDE (${Math.round(distanceOutside(c, this.boundary))}m past) — warned`,
+            `${unit.label} OUTSIDE (${Math.round(distanceOutside(c, this.boundary))}m past) — warned`,
           );
           this.emit(
             'boundary:warning',
             {
-              teamId: team.id,
+              teamId: unit.id,
               metersOutside: Math.round(distanceOutside(c, this.boundary)),
             },
-            { room: team.id },
+            { room: unit.room },
           );
           this.emit(
             'boundary:warning',
-            { teamId: team.id, teamName: team.name },
+            { teamId: unit.id, teamName: unit.name },
             { room: 'referees' },
           );
           this.broadcastState(); // exposure penalty: their dots appear everywhere
@@ -515,7 +705,8 @@ export class Game {
    * Meaningful only once the game is over.
    */
   statsPayload() {
-    if (this.phase !== 'over' || !this.seekStartedAt) return null;
+    // Heist end screen reads the heist block (score + robber roster) instead.
+    if (this.phase !== 'over' || !this.seekStartedAt || this.isHeist()) return null;
     const gameEnd = Math.max(
       this.seekStartedAt,
       ...[...this.teams.values()].map((t) => t.caughtAt ?? 0),
@@ -549,6 +740,7 @@ export class Game {
   baseState() {
     return {
       ...(this.phase === 'over' ? { stats: this.statsPayload() } : {}),
+      mode: this.mode,
       phase: this.phase,
       phaseEndsAt: this.phaseEndsAt,
       serverNow: Date.now(),
@@ -630,6 +822,8 @@ export class Game {
         teamId: id,
         centroid: this.teamCentroid(id),
       })),
+      // Referee sees every station (active or not) — overrides the player block.
+      ...(this.isHeist() ? { heist: this.heistRefereePayload() } : {}),
       // Referee-only game log (newest last); client renders it reversed.
       log: this.log.slice(-60),
     };
@@ -654,6 +848,7 @@ export class Game {
         : exposed.length
           ? { positions: exposed }
           : {}),
+      ...(this.isHeist() ? { heist: this.heistPlayerPayload(player) } : {}),
       you: player
         ? {
             id: player.id,
@@ -675,3 +870,11 @@ export class Game {
     this.emit('game:state', null, { perPlayer: true });
   }
 }
+
+/** Latest position if fresh enough to judge boundary on, else null. */
+function freshPos(player, now, maxAgeMs = 60_000) {
+  return player?.pos && now - player.pos.at <= maxAgeMs ? player.pos : null;
+}
+
+// Heist-mode rules live in their own module; mixed in so they share state.
+Object.assign(Game.prototype, heistMethods);

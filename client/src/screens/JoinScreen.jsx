@@ -3,26 +3,21 @@ import { useGame } from '../context/GameContext.jsx';
 import { getStoredCreds } from '../lib/socket.js';
 
 /**
- * Name + team entry, prefilled from localStorage so a returning player
- * rejoins with one tap.
+ * Step 1: pick a username (prefilled from localStorage so a returning
+ * player is one tap). Lobby and team come next (LobbyBrowser → Lobby).
  *
  * Host login: visit /host (password-only form), or type `host` as the name
- * on the landing page. Hosts are referees — they have NO team, so the team
- * field disappears for them.
+ * on the landing page. Hosts are referees — they have NO team.
  */
 export default function JoinScreen() {
   const { join, connected, logout } = useGame();
   const hostMode = window.location.pathname === '/host';
   const stored = getStoredCreds();
   const [name, setName] = useState(hostMode ? 'host' : (stored?.name ?? ''));
-  const [teamName, setTeamName] = useState(stored?.teamName ?? '');
   const [hostPass, setHostPass] = useState(stored?.hostPass ?? '');
 
   const wantsHost = hostMode || name.trim().toLowerCase() === 'host';
-  const canJoin =
-    connected &&
-    name.trim().length > 0 &&
-    (wantsHost ? hostPass.length > 0 : teamName.trim().length > 0);
+  const canJoin = connected && name.trim().length > 0 && (!wantsHost || hostPass.length > 0);
 
   return (
     <div className="flex flex-1 flex-col justify-center gap-6 py-10">
@@ -43,35 +38,17 @@ export default function JoinScreen() {
         onSubmit={(e) => {
           e.preventDefault();
           if (!canJoin) return;
-          join(
-            wantsHost ? 'host' : name.trim(),
-            wantsHost ? undefined : teamName.trim(),
-            wantsHost ? hostPass : undefined,
-          );
+          join(wantsHost ? 'host' : name.trim(), wantsHost ? hostPass : undefined);
         }}
       >
         {!hostMode && (
           <label className="flex flex-col gap-1">
-            <span className="text-sm font-semibold text-neutral-300">Your name</span>
+            <span className="text-sm font-semibold text-neutral-300">Username</span>
             <input
               className="rounded-xl border border-neutral-700 bg-panel px-4 py-3 text-lg outline-none focus:border-lamp"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Maria"
-              maxLength={24}
-              autoComplete="off"
-              required
-            />
-          </label>
-        )}
-        {!wantsHost && (
-          <label className="flex flex-col gap-1">
-            <span className="text-sm font-semibold text-neutral-300">Team name</span>
-            <input
-              className="rounded-xl border border-neutral-700 bg-panel px-4 py-3 text-lg outline-none focus:border-lamp"
-              value={teamName}
-              onChange={(e) => setTeamName(e.target.value)}
-              placeholder="e.g. Night Owls (same name = same team)"
               maxLength={24}
               autoComplete="off"
               required
@@ -102,8 +79,8 @@ export default function JoinScreen() {
             : wantsHost
               ? 'Log in as host'
               : stored
-                ? 'Rejoin the game'
-                : 'Join the game'}
+                ? 'Continue'
+                : 'Continue'}
         </button>
         {!connected && (
           <p className="text-center text-xs font-semibold text-amber-400">
@@ -119,7 +96,6 @@ export default function JoinScreen() {
           onClick={() => {
             logout();
             setName('');
-            setTeamName('');
             setHostPass('');
           }}
           className="mx-auto px-3 py-1 text-xs font-semibold text-neutral-500 underline active:scale-95"
@@ -135,7 +111,7 @@ export default function JoinScreen() {
           </a>
         ) : (
           <>
-            Teammates: type the exact same team name. Refereeing? Go to /host.{' '}
+            Next you'll pick a lobby and a team. Refereeing? Go to /host.{' '}
             <a href="/how" className="text-lamp underline">
               New? How to play →
             </a>
