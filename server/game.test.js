@@ -104,7 +104,7 @@ test('shrink event reduces boundary radius by shrinkFactor', () => {
   game.configure({ boundary: { center: { lat: 51.5, lng: -0.12 }, radiusM: 200 } });
   game.startPhase('seek');
   game.trigger('shrink');
-  assert.equal(game.boundary.radiusM, 120); // 200 * 0.6
+  assert.equal(game.boundary.radiusM, 170); // 200 * 0.85
 });
 
 test('shrink accepts a custom amount and never grows the circle', () => {

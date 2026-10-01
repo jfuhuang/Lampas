@@ -75,7 +75,7 @@ export default function RefereeView() {
     if (!settings.autoEvents || !boundary) return null;
     const r = Math.min(
       boundary.radiusM,
-      Math.max(20, Math.round(boundary.radiusM * (settings.shrinkFactor ?? 0.6))),
+      Math.max(20, Math.round(boundary.radiusM * (settings.shrinkFactor ?? 0.85))),
     );
     return r < boundary.radiusM ? r : null; // already at the floor — nothing to preview
   })();

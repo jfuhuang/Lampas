@@ -15,7 +15,7 @@ const id = (p) => `dev_${p}${n++}`;
 const DEFAULT_SETTINGS = {
   hideSeconds: 90,
   seekSeconds: 600,
-  shrinkFactor: 0.6,
+  shrinkFactor: 0.85,
   eventSeconds: 15,
   boundaryMarginM: 10,
   // heist mode (mirrors server/heist.js HEIST_SETTINGS)

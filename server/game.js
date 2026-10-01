@@ -18,7 +18,7 @@ export const EVENT_TYPES = ['sound', 'torch', 'shrink', 'reveal'];
 const DEFAULT_SETTINGS = {
   hideSeconds: 180, // hiders get 3 min to hide
   seekSeconds: 1200, // 20 min round cap
-  shrinkFactor: 0.6, // boundary radius multiplier per shrink event
+  shrinkFactor: 0.85, // boundary radius multiplier per shrink event
   eventSeconds: 15, // how long sound/torch events stay active
   revealSeconds: 20, // how long the all-positions reveal lasts
   boundaryMarginM: 10, // GPS-noise margin added to the radius
