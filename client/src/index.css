@@ -104,3 +104,11 @@ body {
 .lamp-flicker {
   animation: lamp-flicker 3s ease-in-out infinite;
 }
+
+/* V2 decoy markers (lib/decoyLayers.js) */
+.decoy-marker {
+  font-size: 22px;
+  line-height: 28px;
+  text-align: center;
+  filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.9));
+}

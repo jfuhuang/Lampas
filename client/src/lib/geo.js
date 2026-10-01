@@ -220,6 +220,33 @@ export function playRevealTone(seconds = 10) {
   return true;
 }
 
+/**
+ * Short proximity blip for the V2 seeker heat cue. Pitch rises with heat
+ * level (2..4); level 4 ("burning") is a distinct two-tone chirp. Needs the
+ * AudioContext unlocked by a tap (unlockAudio). Returns false if it can't play.
+ */
+export function playProximityPing(level) {
+  if (!audioCtx) return false;
+  if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
+  const now = audioCtx.currentTime;
+  const tones = level >= 4 ? [880, 1320] : [360 + level * 120];
+  tones.forEach((freq, i) => {
+    const t = now + i * 0.11;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, t);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.25, t + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.12);
+  });
+  return true;
+}
+
 /** Android-only backup for silent-mode iPhones (no-op elsewhere). */
 export function vibrate(pattern = [400, 150, 400, 150, 800]) {
   try {

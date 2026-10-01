@@ -169,9 +169,9 @@ setInterval(() => {
   for (const lobby of [...lobbies.values()]) {
     const { game } = lobby;
     game.tick();
-    if (game.activeEvent?.type === 'reveal' || game.hasExposed() || game.hasJailed()) {
+    if (game.activeEvent?.type === 'reveal' || game.hasExposed() || game.hasJailed() || game.heatLive()) {
       // dots move live during reveal / while someone's exposed; prison
-      // progress bars tick live while a robber is serving time
+      // progress bars tick live while a robber is serving time; V2 heat follows moving seekers
       game.broadcastState();
     } else if (game.phase !== 'lobby') {
       emitStateToHosts(game);
@@ -348,6 +348,12 @@ io.on('connection', (socket) => {
   socket.on('caught:self', () => {
     const game = gameOf();
     if (game) game.tagPlayer(socket.data.playerId, socket.data.playerId);
+  });
+
+  // V2: hider drops a decoy at their position. Acked so the phone can toast errors.
+  socket.on('decoy:drop', (_payload, ack) => {
+    const game = gameOf();
+    reply(ack, game ? game.dropDecoy(socket.data.playerId) : { error: 'Not in a lobby' });
   });
 
   // ── Heist (cops & robbers) — robber task flow ────────────────────────

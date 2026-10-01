@@ -11,6 +11,7 @@
 
 import { haversine, centroid, insideBoundary, distanceOutside } from './geo.js';
 import { heistMethods, freshHeistState, resetRobber, HEIST_SETTINGS } from './heist.js';
+import { decoyMethods, V2_SETTINGS } from './decoys.js';
 
 export const PHASES = ['lobby', 'hide', 'seek', 'over'];
 export const EVENT_TYPES = ['sound', 'torch', 'shrink', 'reveal'];
@@ -26,6 +27,7 @@ const DEFAULT_SETTINGS = {
   autoEventIntervalSeconds: 90, // gap between auto-fired curveballs
   maxTeamSize: 0, // players per team; 0 = unlimited (host sets in the lobby)
   ...HEIST_SETTINGS, // heist-mode knobs (server/heist.js); ignored in hide & seek
+  ...V2_SETTINGS, // hide & seek V2 knobs (server/decoys.js); ignored in other modes
 };
 
 let nextId = 1;
@@ -53,8 +55,11 @@ export class Game {
   }
 
   reset() {
-    this.mode = 'hideseek'; // 'hideseek' | 'heist' (cops & robbers, server/heist.js)
+    this.mode = 'hideseek'; // 'hideseek' | 'hideseek2' (decoys + heat, server/decoys.js) | 'heist' (server/heist.js)
     this.heist = freshHeistState();
+    this.decoys = []; // V2: live decoy markers
+    this.nextDecoyId = 1;
+    this.clearDecoys();
     this.phase = 'lobby';
     this.phaseEndsAt = null;
     this.boundary = null; // { center: {lat,lng}, radiusM }
@@ -376,12 +381,14 @@ export class Game {
       }
       for (const p of this.players.values()) p.outsideSince = null;
       this.endHeistRound();
+      this.clearDecoys();
     } else if (phase === 'hide') {
       this.startedAt = Date.now();
       this.autoBaseRadiusM = this.boundary?.radiusM ?? null;
       this.lastAutoType = null;
       if (this.isHeist()) this.startHeistRound();
       this.phaseEndsAt = Date.now() + this.settings.hideSeconds * 1000;
+      this.clearDecoys();
     } else if (phase === 'seek') {
       this.phaseEndsAt = Date.now() + this.settings.seekSeconds * 1000;
       // Snapshot for the win rule: >1 hider team → end at 1 left; exactly
@@ -469,6 +476,7 @@ export class Game {
           ? `referee (${this.players.get(byPlayerId)?.name})`
           : 'unknown');
     team.caughtBy = by;
+    this.clearTeamDecoys(team.id); // a caught team's decoys go with it
     const left = this.hiderTeams().length;
     this.logEvent(
       'tag',
@@ -635,6 +643,9 @@ export class Game {
     ) {
       this.autoTrigger(now);
     }
+
+    // V2: expired decoys vanish; heat for moving seekers is pushed from index.js.
+    if (this.isV2() && this.expireDecoys(now)) this.broadcastState();
 
     // Heist: prison time, immunity expiry, abandoned-task locks.
     if (this.isHeist() && this.heistTick(now)) this.broadcastState();
@@ -822,6 +833,7 @@ export class Game {
         teamId: id,
         centroid: this.teamCentroid(id),
       })),
+      ...(this.isV2() ? { v2: { ...this.v2PlayerPayload(null), decoys: this.v2RefereePayload() } } : {}),
       // Referee sees every station (active or not) — overrides the player block.
       ...(this.isHeist() ? { heist: this.heistRefereePayload() } : {}),
       // Referee-only game log (newest last); client renders it reversed.
@@ -849,6 +861,7 @@ export class Game {
           ? { positions: exposed }
           : {}),
       ...(this.isHeist() ? { heist: this.heistPlayerPayload(player) } : {}),
+      ...(this.isV2() ? { v2: this.v2PlayerPayload(player) } : {}),
       you: player
         ? {
             id: player.id,
@@ -877,4 +890,4 @@ function freshPos(player, now, maxAgeMs = 60_000) {
 }
 
 // Heist-mode rules live in their own module; mixed in so they share state.
-Object.assign(Game.prototype, heistMethods);
+Object.assign(Game.prototype, heistMethods, decoyMethods);

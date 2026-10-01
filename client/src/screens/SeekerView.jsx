@@ -1,6 +1,7 @@
 import Countdown from '../components/Countdown.jsx';
 import PlayerMap from '../components/PlayerMap.jsx';
 import CompassDial from '../components/CompassDial.jsx';
+import HeatMeter from '../components/HeatMeter.jsx';
 import { useGame } from '../context/GameContext.jsx';
 import { PhaseBadge, GameOver } from './HiderView.jsx';
 
@@ -34,7 +35,9 @@ export default function SeekerView() {
 
       <CompassDial heading={heading} />
 
-      <PlayerMap boundary={game.boundary} myPos={myPos} heading={heading} others={game.positions} />
+      <PlayerMap boundary={game.boundary} myPos={myPos} heading={heading} others={game.positions} settings={game.settings} decoys={game.v2?.decoys} />
+
+      {game.mode === 'hideseek2' && phase === 'seek' && <HeatMeter heat={game.v2?.heat} />}
 
       {phase === 'hide' ? (
         <div className="rounded-xl border border-neutral-800 bg-panel p-6 text-center">

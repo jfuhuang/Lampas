@@ -90,6 +90,25 @@ export default function HowToPlay() {
         </ul>
       </Card>
 
+      <Card title="🎭 Hide & Seek V2 (decoys)">
+        <p className="mb-2">
+          The host can switch the lobby to <b>Hide &amp; Seek V2</b>. Same rules, plus:
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <b>Hiders</b> can tap <b>Drop decoy</b> in the seek phase. A 🎭 marker appears at your
+            spot on every seeker's map for a while. Drop it, then slip away. Limited charges and a
+            cooldown.
+          </li>
+          <li>
+            <b>Seekers</b> get a <b>proximity meter</b> (cold → burning) from the nearest hider{' '}
+            <i>or decoy</i>. Phones buzz and beep faster as you close in, with a big cue when you're
+            right on top of one. Can't tell which it is until you look.
+          </li>
+          <li>Seekers still never see real hider positions.</li>
+        </ul>
+      </Card>
+
       <Card title="💰 Heist mode (cops & robbers)">
         <p className="mb-2">
           The host can switch the lobby to <b>Heist</b>. Teams become <b>Cops</b> or{' '}

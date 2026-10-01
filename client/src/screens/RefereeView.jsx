@@ -90,6 +90,7 @@ export default function RefereeView() {
           phase={phase}
           onLobbyTap={onLobbyTap}
           shrinkPreviewM={shrinkPreviewM}
+          decoys={game.v2?.decoys}
           heist={
             heistMode
               ? {
@@ -286,6 +287,46 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
       </Section>
 
       {heistMode && <HeistSetup game={game} settings={settings} />}
+
+      {game.mode === 'hideseek2' && (
+        <Section title="2b+ · V2 decoys & proximity">
+          <div className="grid grid-cols-2 gap-3">
+            <NumberField
+              label="Decoys per hider"
+              value={settings.decoysPerPlayer}
+              max={20}
+              onChange={(v) => setSetting('decoysPerPlayer', v)}
+            />
+            <NumberField
+              label="Decoy lifetime (s)"
+              value={settings.decoyLifetimeSeconds}
+              max={900}
+              onChange={(v) => setSetting('decoyLifetimeSeconds', v)}
+            />
+            <NumberField
+              label="Drop cooldown (s)"
+              value={settings.decoyCooldownSeconds}
+              max={300}
+              onChange={(v) => setSetting('decoyCooldownSeconds', v)}
+            />
+            <NumberField
+              label="Heat range (m)"
+              value={settings.proximityRangeM}
+              max={500}
+              onChange={(v) => setSetting('proximityRangeM', v)}
+            />
+            <NumberField
+              label="Close cue (m)"
+              value={settings.closeRangeM}
+              max={100}
+              onChange={(v) => setSetting('closeRangeM', Math.max(10, v))}
+            />
+          </div>
+          <p className="mt-2 text-xs text-neutral-500">
+            Seekers feel heat from the nearest hider OR decoy. GPS is ~10m, so keep the close cue ≥ 15m.
+          </p>
+        </Section>
+      )}
 
       <Section title="2c · Teams">
         <div className="flex items-end gap-3">

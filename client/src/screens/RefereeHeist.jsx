@@ -16,15 +16,16 @@ export function ModePicker({ mode }) {
   const set = (m) => socket.emit('host:config', { mode: m });
   return (
     <Section title="Game mode">
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {[
           ['hideseek', '🏮 Hide & Seek'],
+          ['hideseek2', '🎭 Hide & Seek V2'],
           ['heist', '💰 Heist (cops & robbers)'],
         ].map(([m, label]) => (
           <button
             key={m}
             onClick={() => set(m)}
-            className={`flex-1 rounded-lg px-3 py-3 text-sm font-black active:scale-95 ${
+            className={`min-w-[8rem] flex-1 rounded-lg px-3 py-3 text-sm font-black active:scale-95 ${
               mode === m ? 'bg-lamp text-night' : 'bg-neutral-800 text-neutral-300'
             }`}
           >

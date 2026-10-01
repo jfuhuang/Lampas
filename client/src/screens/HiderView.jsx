@@ -16,7 +16,7 @@ const HEARTBEAT_THROTTLE_MS = 10_000;
  * hiding spot. NO positions of anyone are ever shown here (privacy rule).
  */
 export default function HiderView() {
-  const { game, myPos, heading } = useGame();
+  const { game, myPos, heading, request } = useGame();
   const [confirming, setConfirming] = useState(false);
   const lastBeat = useRef(0);
   const { phase, phaseEndsAt, serverNow, you } = game;
@@ -79,9 +79,16 @@ export default function HiderView() {
       <CompassDial heading={heading} />
 
       {/* Collapsed by default — a lit screen gives away a hiding spot. */}
-      <PlayerMap boundary={game.boundary} myPos={myPos} heading={heading} others={game.positions} collapsedByDefault />
+      <PlayerMap boundary={game.boundary} myPos={myPos} heading={heading} others={game.positions} settings={game.settings} decoys={game.v2?.decoys} collapsedByDefault />
 
       <div className="mt-auto flex flex-col gap-2">
+        {game.mode === "hideseek2" && !confirming && (
+          <DecoyButton
+            v2={game.v2}
+            enabled={phase === "seek"}
+            onDrop={() => request("decoy:drop")}
+          />
+        )}
         {confirming ? (
           <>
             <p className="text-center text-sm font-bold text-red-300">
@@ -118,6 +125,46 @@ export default function HiderView() {
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * V2: drop a decoy at your current spot. Charges + cooldown come from the
+ * server (game.v2); the button just counts the cooldown down locally.
+ */
+function DecoyButton({ v2, enabled, onDrop }) {
+  const [now, setNow] = useState(Date.now());
+  const cooldownUntil = v2?.cooldownUntil ?? 0;
+  const charges = v2?.charges ?? 0;
+  const waitS = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
+
+  useEffect(() => {
+    if (cooldownUntil <= Date.now()) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, [cooldownUntil]);
+
+  const disabled = !enabled || charges <= 0 || waitS > 0;
+  return (
+    <button
+      onClick={() => {
+        setNow(Date.now());
+        onDrop();
+      }}
+      disabled={disabled}
+      className="rounded-xl border-2 border-amber-700 bg-amber-950 px-4 py-4 text-lg font-black text-amber-200 active:scale-95 disabled:opacity-40"
+    >
+      🎭 Drop decoy
+      <span className="ml-2 text-sm font-bold text-amber-400">
+        {!enabled
+          ? "(unlocks in seek phase)"
+          : charges <= 0
+            ? "(none left)"
+            : waitS > 0
+              ? `(${waitS}s)`
+              : `(${charges} left)`}
+      </span>
+    </button>
   );
 }
 

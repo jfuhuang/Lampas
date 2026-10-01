@@ -58,7 +58,7 @@ export const heistMethods = {
   },
 
   setMode(mode) {
-    if (this.phase !== 'lobby' || (mode !== 'hideseek' && mode !== 'heist')) return;
+    if (this.phase !== 'lobby' || (mode !== 'hideseek' && mode !== 'hideseek2' && mode !== 'heist')) return;
     this.mode = mode;
     this.logEvent('config', `mode → ${mode}`);
   },

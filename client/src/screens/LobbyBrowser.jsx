@@ -44,6 +44,7 @@ export default function LobbyBrowser() {
                 {l.players} player{l.players === 1 ? '' : 's'} · {l.teams} team
                 {l.teams === 1 ? '' : 's'}
                 {l.mode === 'heist' ? ' · 🚓 heist' : ''}
+                {l.mode === 'hideseek2' ? ' · 🎭 V2' : ''}
                 {!l.hostOnline ? ' · no host online' : ''}
               </span>
             </span>

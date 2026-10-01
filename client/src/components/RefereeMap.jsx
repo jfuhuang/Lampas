@@ -3,6 +3,7 @@ import L from 'leaflet';
 import { DEFAULT_CENTER, DEFAULT_ZOOM } from '../lib/geo.js';
 import { addStyleControl } from '../lib/mapStyles.js';
 import { drawHeistLayers } from '../lib/heistLayers.js';
+import { drawDecoyLayers } from '../lib/decoyLayers.js';
 
 /**
  * Live Leaflet map for the host/referee ONLY — the one place player
@@ -14,7 +15,7 @@ import { drawHeistLayers } from '../lib/heistLayers.js';
  *   center, or a heist station / prison — RefereeView picks)
  * - heist: violet = live station, dashed grey = dark station, blue = prison
  */
-export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shrinkPreviewM, heist }) {
+export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shrinkPreviewM, heist, decoys }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null); // markers redrawn each render
@@ -22,6 +23,7 @@ export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shr
   const previewCircleRef = useRef(null); // dashed: where the next auto-shrink would land
   const centeredOnce = useRef(false);
   const heistLayerRef = useRef(null); // heist stations + prison
+  const decoyLayerRef = useRef(null); // V2 decoys (with owner names)
   const onLobbyTapRef = useRef(onLobbyTap);
   onLobbyTapRef.current = onLobbyTap;
   const phaseRef = useRef(phase);
@@ -35,6 +37,7 @@ export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shr
     );
     addStyleControl(map); // Night / Terrain / Satellite picker
     heistLayerRef.current = L.layerGroup().addTo(map);
+    decoyLayerRef.current = L.layerGroup().addTo(map);
     layerRef.current = L.layerGroup().addTo(map);
     map.on('click', (e) => {
       // Boundary / station / prison placement only makes sense before the
@@ -94,6 +97,10 @@ export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shr
   useEffect(() => {
     drawHeistLayers(heistLayerRef.current, heist ?? {});
   }, [heist]);
+
+  useEffect(() => {
+    drawDecoyLayers(decoyLayerRef.current, decoys);
+  }, [decoys]);
 
   // Player dots
   useEffect(() => {
