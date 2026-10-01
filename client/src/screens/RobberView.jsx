@@ -109,7 +109,7 @@ export default function RobberView() {
         boundary={game.boundary}
         myPos={myPos}
         heading={heading}
-        others={game.positions}
+        others={game.positions} settings={game.settings}
         heist={{
           stations: heist.stations,
           prison: heist.prison,
