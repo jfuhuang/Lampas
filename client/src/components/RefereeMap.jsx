@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { DEFAULT_CENTER, DEFAULT_ZOOM } from '../lib/geo.js';
+import { DEFAULT_CENTER, DEFAULT_ZOOM, shrinkCenter } from '../lib/geo.js';
 import { addStyleControl } from '../lib/mapStyles.js';
 import { drawHeistLayers } from '../lib/heistLayers.js';
 import { drawDecoyLayers } from '../lib/decoyLayers.js';
@@ -15,17 +15,20 @@ import { drawDecoyLayers } from '../lib/decoyLayers.js';
  *   center, or a heist station / prison — RefereeView picks)
  * - heist: violet = live station, dashed grey = dark station, blue = prison
  */
-export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shrinkPreviewM, heist, decoys }) {
+export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shrinkPreviewM, shrinkTarget, onTargetTap, heist, decoys }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const layerRef = useRef(null); // markers redrawn each render
   const circleRef = useRef(null);
   const previewCircleRef = useRef(null); // dashed: where the next auto-shrink would land
+  const targetMarkerRef = useRef(null); // referee-only shrink destination
   const centeredOnce = useRef(false);
   const heistLayerRef = useRef(null); // heist stations + prison
   const decoyLayerRef = useRef(null); // V2 decoys (with owner names)
   const onLobbyTapRef = useRef(onLobbyTap);
   onLobbyTapRef.current = onLobbyTap;
+  const onTargetTapRef = useRef(onTargetTap);
+  onTargetTapRef.current = onTargetTap;
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
 
@@ -42,7 +45,9 @@ export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shr
     map.on('click', (e) => {
       // Boundary / station / prison placement only makes sense before the
       // game starts — the parent decides which one a tap places.
-      if (phaseRef.current === 'lobby') {
+      if (onTargetTapRef.current) {
+        onTargetTapRef.current({ lat: e.latlng.lat, lng: e.latlng.lng });
+      } else if (phaseRef.current === 'lobby') {
         onLobbyTapRef.current?.({ lat: e.latlng.lat, lng: e.latlng.lng });
       }
     });
@@ -83,7 +88,8 @@ export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shr
       previewCircleRef.current = null;
     }
     if (boundary?.center && shrinkPreviewM) {
-      previewCircleRef.current = L.circle([boundary.center.lat, boundary.center.lng], {
+      const c = shrinkCenter(boundary, shrinkPreviewM, shrinkTarget);
+      previewCircleRef.current = L.circle([c.lat, c.lng], {
         radius: shrinkPreviewM,
         color: '#ef4444',
         weight: 2,
@@ -91,7 +97,21 @@ export default function RefereeMap({ positions, boundary, phase, onLobbyTap, shr
         fill: false,
       }).addTo(map);
     }
-  }, [boundary?.center?.lat, boundary?.center?.lng, shrinkPreviewM]);
+  }, [boundary?.center?.lat, boundary?.center?.lng, boundary?.radiusM, shrinkPreviewM, shrinkTarget?.lat, shrinkTarget?.lng]);
+
+  // Shrink target marker — where the zone drifts on each shrink.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    targetMarkerRef.current?.remove();
+    targetMarkerRef.current = null;
+    if (shrinkTarget) {
+      targetMarkerRef.current = L.marker([shrinkTarget.lat, shrinkTarget.lng], {
+        icon: L.divIcon({ className: '', html: '<div style="font-size:22px;line-height:22px">🎯</div>', iconSize: [22, 22], iconAnchor: [11, 11] }),
+        interactive: false,
+      }).addTo(map);
+    }
+  }, [shrinkTarget?.lat, shrinkTarget?.lng]);
 
   // Heist: every station (dark ones dashed) + prison.
   useEffect(() => {

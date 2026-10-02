@@ -426,3 +426,24 @@ test('randomizeTeams: balanced, honours maxTeamSize, prunes empties', () => {
   game.startPhase('hide');
   assert.equal(game.randomizeTeams(), false, 'lobby only');
 });
+
+test('shrink drifts toward the referee target, staying inside the old circle', async () => {
+  const { Game } = await import('./game.js');
+  const { haversine } = await import('./geo.js');
+  const game = new Game(() => {});
+  game.addPlayer({ name: 'Host', isHost: true });
+  const center = { lat: 42, lng: -93.6 };
+  game.configure({ boundary: { center, radiusM: 200 } });
+  game.startPhase('hide');
+  const target = { lat: 42 + 0.01, lng: -93.6 }; // ~1.1 km north
+  game.configure({ shrinkTarget: target });
+  game.trigger('shrink', { radiusM: 100 });
+  assert.equal(game.boundary.radiusM, 100);
+  const shift = haversine(center, game.boundary.center);
+  assert.ok(Math.abs(shift - 100) < 1, `center moved ${shift}m, expected ~100`);
+  assert.ok(game.boundary.center.lat > center.lat);
+  game.configure({ shrinkTarget: null });
+  const c2 = game.boundary.center;
+  game.trigger('shrink', { radiusM: 50 });
+  assert.deepEqual(game.boundary.center, c2); // no target: same center
+});

@@ -391,8 +391,8 @@ io.on('connection', (socket) => {
 
   onHost('host:trigger', (game, { type, ...opts }) => game.trigger(type, opts));
 
-  onHost('host:config', (game, { boundary, settings, mode }) => {
-    game.configure({ boundary, settings, mode });
+  onHost('host:config', (game, { boundary, settings, mode, shrinkTarget }) => {
+    game.configure({ boundary, settings, mode, shrinkTarget });
     game.broadcastState();
   });
 

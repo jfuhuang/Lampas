@@ -4,6 +4,7 @@ import { DEFAULT_CENTER, DEFAULT_ZOOM } from '../lib/geo.js';
 import { addStyleControl } from '../lib/mapStyles.js';
 import { drawHeistLayers } from '../lib/heistLayers.js';
 import { drawDecoyLayers } from '../lib/decoyLayers.js';
+import { useGame } from '../context/GameContext.jsx';
 
 /**
  * Boundary map for HIDERS and SEEKERS: the amber circle + YOUR OWN blue
@@ -25,12 +26,15 @@ export default function PlayerMap({
   collapsedByDefault = false,
 }) {
   const [open, setOpen] = useState(!collapsedByDefault);
+  const hasShrinkTarget = !!useGame().game?.hasShrinkTarget;
   const revealed = (others?.length ?? 0) > 0;
 
   // Where the zone lands if the next auto-curveball is a shrink (same math
   // as the referee's preview). Only shown once auto-curveballs are armed.
   const shrinkPreviewM = (() => {
-    if (!settings?.autoEvents || !boundary) return null;
+    // A hidden shrink target means the zone won't shrink around its center — a
+    // centered preview would lie, so don't show one.
+    if (!settings?.autoEvents || !boundary || hasShrinkTarget) return null;
     const r = Math.min(
       boundary.radiusM,
       Math.max(20, Math.round(boundary.radiusM * (settings.shrinkFactor ?? 0.85))),

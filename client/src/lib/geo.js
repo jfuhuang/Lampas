@@ -438,3 +438,14 @@ export async function disableTorch() {
     await killTorchTrack(track);
   }
 }
+
+/** Boundary center after shrinking to `newR` toward `target` (mirrors server/geo.js shrinkCenter). */
+export function shrinkCenter(boundary, newR, target) {
+  const c = boundary.center;
+  if (!target) return c;
+  const maxShift = Math.max(0, boundary.radiusM - newR);
+  const dist = haversine(c, target);
+  if (dist === 0 || maxShift === 0) return c;
+  const f = Math.min(1, maxShift / dist);
+  return { lat: c.lat + (target.lat - c.lat) * f, lng: c.lng + (target.lng - c.lng) * f };
+}

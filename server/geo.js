@@ -70,3 +70,23 @@ export function distanceOutside(point, boundary) {
   if (!point || !boundary || !boundary.center) return 0;
   return Math.max(0, haversine(point, boundary.center) - boundary.radiusM);
 }
+
+/**
+ * Center of the boundary after shrinking to `newR`, pulled toward `target`.
+ * The new circle always stays inside the old one: the center moves along the
+ * line to the target by at most (oldR - newR), or all the way if the target
+ * is closer than that. No target → center unchanged.
+ * @param {{center:{lat:number,lng:number}, radiusM:number}} boundary
+ * @param {number} newR
+ * @param {{lat:number,lng:number}|null} target
+ * @returns {{lat:number,lng:number}}
+ */
+export function shrinkCenter(boundary, newR, target) {
+  const c = boundary.center;
+  if (!target) return c;
+  const maxShift = Math.max(0, boundary.radiusM - newR);
+  const dist = haversine(c, target);
+  if (dist === 0 || maxShift === 0) return c;
+  const f = Math.min(1, maxShift / dist);
+  return { lat: c.lat + (target.lat - c.lat) * f, lng: c.lng + (target.lng - c.lng) * f };
+}

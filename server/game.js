@@ -9,7 +9,7 @@
  * Phases: lobby → hide → seek → over  (host can reset back to lobby)
  */
 
-import { haversine, centroid, insideBoundary, distanceOutside } from './geo.js';
+import { haversine, centroid, insideBoundary, distanceOutside, shrinkCenter } from './geo.js';
 import { heistMethods, freshHeistState, resetRobber, HEIST_SETTINGS } from './heist.js';
 import { decoyMethods, V2_SETTINGS } from './decoys.js';
 
@@ -63,6 +63,7 @@ export class Game {
     this.phase = 'lobby';
     this.phaseEndsAt = null;
     this.boundary = null; // { center: {lat,lng}, radiusM }
+    this.shrinkTarget = null; // {lat,lng} the zone drifts toward on shrink (referee-only)
     this.settings = { ...DEFAULT_SETTINGS };
     this.players = new Map(); // playerId → player
     this.teams = new Map(); // teamId → team
@@ -338,8 +339,13 @@ export class Game {
   }
 
   /** Host: configure boundary and/or timers. Boundary is a circle, always. */
-  configure({ boundary, settings, mode }) {
+  configure({ boundary, settings, mode, shrinkTarget }) {
     if (mode) this.setMode(mode);
+    if (shrinkTarget === null) this.shrinkTarget = null;
+    else if (shrinkTarget && Number.isFinite(+shrinkTarget.lat) && Number.isFinite(+shrinkTarget.lng)) {
+      this.shrinkTarget = { lat: +shrinkTarget.lat, lng: +shrinkTarget.lng };
+      this.logEvent('config', 'shrink target set');
+    }
     if (boundary && boundary.center && boundary.radiusM > 0) {
       this.boundary = {
         center: { lat: +boundary.center.lat, lng: +boundary.center.lng },
@@ -382,6 +388,7 @@ export class Game {
       for (const p of this.players.values()) p.outsideSince = null;
       this.endHeistRound();
       this.clearDecoys();
+      this.shrinkTarget = null;
     } else if (phase === 'hide') {
       this.startedAt = Date.now();
       this.autoBaseRadiusM = this.boundary?.radiusM ?? null;
@@ -556,8 +563,13 @@ export class Game {
             : this.settings.shrinkFactor;
         newR = oldR * factor;
       }
-      this.boundary.radiusM = Math.min(oldR, Math.max(20, Math.round(newR)));
-      this.logEvent('event', `SHRINK: radius ${oldR}m → ${this.boundary.radiusM}m`);
+      const finalR = Math.min(oldR, Math.max(20, Math.round(newR)));
+      const center = shrinkCenter(this.boundary, finalR, this.shrinkTarget);
+      this.boundary = { center, radiusM: finalR };
+      this.logEvent(
+        'event',
+        `SHRINK: radius ${oldR}m → ${finalR}m` + (this.shrinkTarget ? ' (toward target)' : ''),
+      );
       this.emit('event:shrink', { boundary: this.boundary });
     } else {
       const seconds =
@@ -694,6 +706,8 @@ export class Game {
             {
               teamId: unit.id,
               metersOutside: Math.round(distanceOutside(c, this.boundary)),
+              // V2: countdown until the team is converted for camping outside
+              secondsUntilSeeker: this.outOfBoundsLimitMs() ? this.outOfBoundsLimitMs() / 1000 : null,
             },
             { room: unit.room },
           );
@@ -703,6 +717,14 @@ export class Game {
             { room: 'referees' },
           );
           this.broadcastState(); // exposure penalty: their dots appear everywhere
+        } else if (this.boundaryPenaltyDue(members, now)) {
+          // V2 only: outside too long while still connected → seekers.
+          // `c` is non-null here, so the team has a fresh position fix.
+          const since = Math.min(...members.filter((m) => m.outsideSince).map((m) => m.outsideSince));
+          this.logEvent('boundary', `${unit.label} outside ${Math.round((now - since) / 1000)}s — converting to seekers`);
+          const target = members.find((m) => m.connected) ?? members[0];
+          this.tagPlayer(target.id, null, 'boundary penalty');
+          for (const m of members) m.outsideSince = null;
         }
       }
     }
@@ -756,6 +778,7 @@ export class Game {
       phaseEndsAt: this.phaseEndsAt,
       serverNow: Date.now(),
       boundary: this.boundary,
+      hasShrinkTarget: !!this.shrinkTarget, // players only learn THAT one exists
       settings: this.settings,
       activeEvent: this.activeEvent,
       nextAutoEventAt: this.nextAutoEventAt,
@@ -829,6 +852,7 @@ export class Game {
     return {
       ...(playerId ? this.playerState(playerId) : this.baseState()),
       positions: this.positionsPayload(),
+      shrinkTarget: this.shrinkTarget,
       teamCentroids: [...this.teams.keys()].map((id) => ({
         teamId: id,
         centroid: this.teamCentroid(id),

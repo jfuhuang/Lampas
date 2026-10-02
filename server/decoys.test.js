@@ -74,3 +74,33 @@ test('heat counts decoys and never exposes distance or target type', () => {
   assert.equal(game.heatFor(seeker.id).level, 2); // 30 m: ≤0.6×60 m, >0.35×60 m → warm
   assert.equal(game.heatFor(hider.id), null); // hiders get no heat
 });
+
+test('V2: hider team outside past the limit becomes seekers; disconnected never does', () => {
+  const { game, hider } = v2Game();
+  const t0 = Date.now();
+  game.updatePosition(hider.id, at(500)); // outside the 300m circle
+  game.tick(t0); // first tick: warned
+  assert.equal(game.teams.get(hider.teamId).role, 'hider');
+  game.tick(t0 + 119_000);
+  assert.equal(game.teams.get(hider.teamId).role, 'hider');
+
+  // pinged recently + connected + past limit → converted
+  game.players.get(hider.id).lastSeenAt = t0 + 125_000;
+  game.updatePosition(hider.id, at(500));
+  game.players.get(hider.id).pos.at = t0 + 125_000;
+  game.players.get(hider.id).lastSeenAt = t0 + 125_000;
+  game.tick(t0 + 125_000);
+  assert.equal(game.teams.get(hider.teamId).role, 'seeker');
+  assert.equal(game.teams.get(hider.teamId).caughtBy, 'boundary penalty');
+});
+
+test('V2: stale ping (disconnect) blocks the out-of-bounds conversion', () => {
+  const { game, hider } = v2Game();
+  const t0 = Date.now();
+  game.updatePosition(hider.id, at(500));
+  game.tick(t0);
+  game.players.get(hider.id).pos.at = t0 + 125_000; // fresh fix, but...
+  game.players.get(hider.id).lastSeenAt = t0 + 10_000; // ...last ping long ago
+  game.tick(t0 + 125_000);
+  assert.equal(game.teams.get(hider.teamId).role, 'hider');
+});

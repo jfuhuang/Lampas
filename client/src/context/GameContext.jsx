@@ -161,11 +161,15 @@ export function GameProvider({ children }) {
     };
     const onConverted = ({ teamName, caughtPlayerName }) =>
       showToast(`${caughtPlayerName} caught — team ${teamName} are now seekers!`, 'alert');
-    const onWarning = ({ metersOutside, teamName }) => {
+    const onWarning = ({ metersOutside, teamName, secondsUntilSeeker }) => {
       vibrate([200, 100, 200]);
       showToast(
         metersOutside != null
-          ? `OUT OF BOUNDS — ${metersOutside}m outside. Your location is now VISIBLE to everyone until you're back in!`
+          ? `OUT OF BOUNDS — ${metersOutside}m outside. Your location is now VISIBLE to everyone until you're back in!${
+              secondsUntilSeeker
+                ? ` Stay out ${Math.round(secondsUntilSeeker / 60)} min and you become seekers.`
+                : ''
+            }`
           : `Team ${teamName ?? ''} is out of bounds — their dots are exposed`,
         'warn',
       );

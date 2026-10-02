@@ -27,6 +27,9 @@ export default function RefereeView() {
   const heistMode = game.mode === 'heist';
   // Heist lobby: what a map tap places — boundary center, a station, or the prison.
   const [placeMode, setPlaceMode] = useState('boundary');
+  // In-game: next map tap sets where shrinks drift toward.
+  const [pickingTarget, setPickingTarget] = useState(false);
+  const setShrinkTarget = (pt) => socket.emit('host:config', { shrinkTarget: pt });
 
   const setCenter = (center) =>
     socket.emit('host:config', {
@@ -72,7 +75,7 @@ export default function RefereeView() {
   // on "shrink" — random among 4 types, so this is a preview, not a promise.
   // Only worth showing once auto-curveballs are armed for this round.
   const shrinkPreviewM = (() => {
-    if (!settings.autoEvents || !boundary) return null;
+    if ((!settings.autoEvents && !game.shrinkTarget) || !boundary) return null;
     const r = Math.min(
       boundary.radiusM,
       Math.max(20, Math.round(boundary.radiusM * (settings.shrinkFactor ?? 0.85))),
@@ -90,6 +93,15 @@ export default function RefereeView() {
           phase={phase}
           onLobbyTap={onLobbyTap}
           shrinkPreviewM={shrinkPreviewM}
+          shrinkTarget={game.shrinkTarget}
+          onTargetTap={
+            pickingTarget
+              ? (pt) => {
+                  setShrinkTarget(pt);
+                  setPickingTarget(false);
+                }
+              : undefined
+          }
           decoys={game.v2?.decoys}
           heist={
             heistMode
@@ -126,7 +138,7 @@ export default function RefereeView() {
         )}
 
         {(phase === 'hide' || phase === 'seek') && (
-          <LiveControls game={game} boundary={boundary} heistMode={heistMode} />
+          <LiveControls game={game} boundary={boundary} heistMode={heistMode} pickingTarget={pickingTarget} setPickingTarget={setPickingTarget} setShrinkTarget={setShrinkTarget} />
         )}
 
         {phase === 'over' && (
@@ -310,6 +322,12 @@ function LobbyControls({ game, boundary, settings, onUseMyLocation, onRadius, on
               onChange={(v) => setSetting('decoyCooldownSeconds', v)}
             />
             <NumberField
+              label="Out-of-bounds limit (s, 0 = off)"
+              value={settings.outOfBoundsLimitSeconds}
+              max={900}
+              onChange={(v) => setSetting('outOfBoundsLimitSeconds', v)}
+            />
+            <NumberField
               label="Heat range (m)"
               value={settings.proximityRangeM}
               max={500}
@@ -445,7 +463,7 @@ function InviteQR() {
 
 /* ── In-game: curveballs, phase skip, manual tag ──────────────────────── */
 
-function LiveControls({ game, boundary, heistMode }) {
+function LiveControls({ game, boundary, heistMode, pickingTarget, setPickingTarget, setShrinkTarget }) {
   const [confirmReset, setConfirmReset] = useState(false);
   const [shrinkOpen, setShrinkOpen] = useState(false);
   const [targetR, setTargetR] = useState('');
@@ -490,6 +508,24 @@ function LiveControls({ game, boundary, heistMode }) {
         </div>
         {shrinkOpen && boundary && (
           <div className="mt-2 rounded-lg border border-amber-900 bg-night p-2">
+            <div className="mb-2 flex items-center gap-2">
+              <button
+                onClick={() => setPickingTarget(!pickingTarget)}
+                className={`flex-1 rounded-lg px-2 py-2 text-sm font-bold active:scale-95 ${
+                  pickingTarget ? 'bg-amber-500 text-night' : 'bg-neutral-800'
+                }`}
+              >
+                🎯 {pickingTarget ? 'Tap the map…' : game.shrinkTarget ? 'Move target' : 'Set shrink target'}
+              </button>
+              {game.shrinkTarget && (
+                <button
+                  onClick={() => setShrinkTarget(null)}
+                  className="rounded-lg bg-neutral-800 px-3 py-2 text-sm font-bold active:scale-95"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
             <div className="flex gap-2">
               {[0.9, 0.75, 0.5].map((f) => (
                 <button

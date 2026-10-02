@@ -20,6 +20,8 @@ export const V2_SETTINGS = {
   decoyCooldownSeconds: 20, // gap between one hider's drops
   proximityRangeM: 60, // beyond this a seeker reads "cold"
   closeRangeM: 20, // within this the haptic + sound cue fires
+  outOfBoundsLimitSeconds: 120, // hiders outside this long become seekers (0 = off)
+  outOfBoundsPingSeconds: 30, // ...but only if a member pinged this recently (not disconnected)
 };
 
 const FRESH_MS = 30_000; // positions older than this don't count as targets
@@ -31,6 +33,25 @@ const fresh = (pos, now) => pos && now - pos.at <= FRESH_MS;
 export const decoyMethods = {
   isV2() {
     return this.mode === 'hideseek2';
+  },
+
+  /** Out-of-bounds limit in ms, or 0 when disabled / not V2 seek. */
+  outOfBoundsLimitMs() {
+    if (!this.isV2()) return 0;
+    return Math.max(0, +this.settings.outOfBoundsLimitSeconds || 0) * 1000;
+  },
+
+  /**
+   * V2: has this hider team been outside past the limit while at least one
+   * outside member is still pinging? Disconnected phones never convert.
+   */
+  boundaryPenaltyDue(members, now = Date.now()) {
+    const limit = this.outOfBoundsLimitMs();
+    if (!limit || this.phase !== 'seek') return false;
+    const since = members.filter((m) => m.outsideSince).map((m) => m.outsideSince);
+    if (!since.length || now - Math.min(...since) < limit) return false;
+    const pingMs = Math.max(0, +this.settings.outOfBoundsPingSeconds || 0) * 1000;
+    return members.some((m) => m.connected && now - m.lastSeenAt <= pingMs);
   },
 
   /** Charges a player has left this round. */
